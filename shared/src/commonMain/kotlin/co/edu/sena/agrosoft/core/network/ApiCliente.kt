@@ -1,0 +1,40 @@
+package co.edu.sena.agrosoft.core.network
+
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
+
+object ApiConfig {
+    const val BASE_URL = "http://localhost:3000/api/"
+}
+
+object ApiCliente {
+    var token: String? = null
+
+    val http = HttpClient {
+        expectSuccess = false
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+                explicitNulls = false
+            })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15_000
+            connectTimeoutMillis = 10_000
+        }
+        defaultRequest {
+            url(ApiConfig.BASE_URL)
+            contentType(ContentType.Application.Json)
+            token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+        }
+    }
+}
