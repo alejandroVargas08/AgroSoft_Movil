@@ -27,6 +27,7 @@ import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.core.util.decimal
 import com.composables.icons.lucide.*
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun InicioAprendizScreen(
@@ -37,6 +38,8 @@ fun InicioAprendizScreen(
 ) {
     val vm = viewModel(key = "inicio-aprendiz-$sesionId") { InicioAprendizViewModel() }
     val e = vm.estado
+
+    LaunchedEffect(Unit) { vm.cargar() }
 
     Column(Modifier.fillMaxWidth()) {
         when {

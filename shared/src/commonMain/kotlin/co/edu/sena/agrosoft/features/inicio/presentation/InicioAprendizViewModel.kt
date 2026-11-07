@@ -52,10 +52,6 @@ class InicioAprendizViewModel(
     var estado by mutableStateOf(InicioAprendizEstado())
         private set
 
-    init {
-        cargar()
-    }
-
     fun cargar() {
         estado = estado.copy(cargando = true, error = null)
         viewModelScope.launch {

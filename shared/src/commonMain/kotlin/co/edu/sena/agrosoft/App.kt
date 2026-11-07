@@ -37,6 +37,7 @@ import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginViewModel
 import co.edu.sena.agrosoft.features.inicio.presentation.InicioAprendizScreen
+import co.edu.sena.agrosoft.features.tareas.presentation.TareasAprendizScreen
 import org.jetbrains.compose.resources.painterResource
 
 @Composable
@@ -124,6 +125,11 @@ private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
                             onAbrirSensores = { navegador.ir(Pantalla.SENSORES) },
                             onAbrirVuelo = { navegador.ir(Pantalla.DETALLE_VUELO) },
                         )
+                    } else {
+                        EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
+                    }
+                    Pantalla.TRABAJO -> if (sesion.rol == Rol.APRENDIZ) {
+                        TareasAprendizScreen(sesionId = sesion.id)
                     } else {
                         EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                     }
