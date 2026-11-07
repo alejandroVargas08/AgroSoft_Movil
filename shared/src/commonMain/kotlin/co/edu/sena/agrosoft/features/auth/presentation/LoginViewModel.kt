@@ -11,6 +11,7 @@ import co.edu.sena.agrosoft.features.auth.data.Sesion
 import kotlinx.coroutines.launch
 
 data class LoginEstado(
+    val verificando: Boolean = true,
     val correo: String = "",
     val password: String = "",
     val cargando: Boolean = false,
@@ -25,6 +26,13 @@ class LoginViewModel(
 
     var estado by mutableStateOf(LoginEstado())
         private set
+
+    init {
+        viewModelScope.launch {
+            val sesion = repositorio.restaurarSesion()
+            estado = estado.copy(verificando = false, sesion = sesion, correo = sesion?.correo.orEmpty())
+        }
+    }
 
     fun cambiarCorreo(valor: String) {
         estado = estado.copy(correo = valor, error = null, aviso = null)
@@ -48,6 +56,6 @@ class LoginViewModel(
 
     fun cerrarSesion() {
         repositorio.cerrarSesion()
-        estado = LoginEstado(correo = estado.correo)
+        estado = LoginEstado(verificando = false, correo = estado.correo)
     }
 }

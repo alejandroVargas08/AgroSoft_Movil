@@ -1,6 +1,9 @@
 package co.edu.sena.agrosoft
 
+import agrosoft.shared.generated.resources.Res
+import agrosoft.shared.generated.resources.logo_agrosoft
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +36,8 @@ import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginViewModel
+import co.edu.sena.agrosoft.features.inicio.presentation.InicioAprendizScreen
+import org.jetbrains.compose.resources.painterResource
 
 @Composable
 fun App() {
@@ -40,8 +46,9 @@ fun App() {
         val estado = login.estado
         val sesion = estado.sesion
 
-        if (sesion == null) {
-            LoginScreen(
+        when {
+            estado.verificando -> PantallaCarga()
+            sesion == null -> LoginScreen(
                 correo = estado.correo,
                 password = estado.password,
                 mensajeError = estado.error,
@@ -54,9 +61,22 @@ fun App() {
                 onOlvideContrasena = {},
                 onRegistro = {},
             )
-        } else {
-            AppPrincipal(sesion = sesion, onCerrarSesion = login::cerrarSesion)
+            else -> AppPrincipal(sesion = sesion, onCerrarSesion = login::cerrarSesion)
         }
+    }
+}
+
+@Composable
+private fun PantallaCarga() {
+    Box(
+        modifier = Modifier.fillMaxSize().background(AgroColors.Background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.logo_agrosoft),
+            contentDescription = "AgroSoft",
+            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(20.dp)),
+        )
     }
 }
 
@@ -97,6 +117,16 @@ private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
                     .padding(bottom = if (pantalla.principal) 110.dp else 24.dp),
             ) {
                 when (pantalla) {
+                    Pantalla.INICIO -> if (sesion.rol == Rol.APRENDIZ) {
+                        InicioAprendizScreen(
+                            sesionId = sesion.id,
+                            onAbrirTareas = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                            onAbrirSensores = { navegador.ir(Pantalla.SENSORES) },
+                            onAbrirVuelo = { navegador.ir(Pantalla.DETALLE_VUELO) },
+                        )
+                    } else {
+                        EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
+                    }
                     Pantalla.MAS -> PantallaMasTemporal(navegador, onCerrarSesion)
                     else -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                 }

@@ -2,12 +2,14 @@ package co.edu.sena.agrosoft.features.auth.data
 
 import co.edu.sena.agrosoft.core.navigation.Rol
 import co.edu.sena.agrosoft.core.network.ApiCliente
+import co.edu.sena.agrosoft.core.session.AlmacenSesion
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -17,6 +19,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
 
+@Serializable
 data class Sesion(
     val id: Int,
     val nombre: String,
@@ -69,16 +72,16 @@ class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
             }
             val acceso = accesoRespuesta.body<MiAcceso>()
 
-            ResultadoLogin.Exito(
-                Sesion(
-                    id = datos.usuario.id,
-                    nombre = datos.usuario.nombre.trim().substringBefore(" "),
-                    nombreCompleto = datos.usuario.nombre.trim(),
-                    iniciales = inicialesDe(datos.usuario.nombre),
-                    correo = datos.usuario.correo,
-                    rol = rolDesdePermisos(acceso.permisos),
-                )
+            val sesion = Sesion(
+                id = datos.usuario.id,
+                nombre = datos.usuario.nombre.trim().substringBefore(" "),
+                nombreCompleto = datos.usuario.nombre.trim(),
+                iniciales = inicialesDe(datos.usuario.nombre),
+                correo = datos.usuario.correo,
+                rol = rolDesdePermisos(acceso.permisos),
             )
+            AlmacenSesion.guardar(sesion, datos.accessToken)
+            ResultadoLogin.Exito(sesion)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -87,8 +90,36 @@ class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
         }
     }
 
+    suspend fun restaurarSesion(): Sesion? {
+        val token = AlmacenSesion.token() ?: return null
+        val guardada = AlmacenSesion.sesion() ?: return null
+        ApiCliente.token = token
+
+        return try {
+            val respuesta = http.get("mi-acceso")
+            when {
+                respuesta.status == HttpStatusCode.Unauthorized -> {
+                    cerrarSesion()
+                    null
+                }
+                respuesta.status.isSuccess() -> {
+                    val acceso = respuesta.body<MiAcceso>()
+                    val actualizada = guardada.copy(rol = rolDesdePermisos(acceso.permisos))
+                    AlmacenSesion.guardar(actualizada, token)
+                    actualizada
+                }
+                else -> guardada
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            guardada
+        }
+    }
+
     fun cerrarSesion() {
         ApiCliente.token = null
+        AlmacenSesion.borrar()
     }
 
     private suspend fun leerError(respuesta: HttpResponse): Pair<String, String?> {
@@ -118,3 +149,4 @@ class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
         return (partes.firstOrNull()?.take(1).orEmpty() + segunda?.take(1).orEmpty()).uppercase()
     }
 }
+//Paso al loginviewModel
