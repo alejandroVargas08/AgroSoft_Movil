@@ -1,5 +1,6 @@
 package co.edu.sena.agrosoft.features.tareas.presentation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,10 +16,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -33,14 +42,36 @@ import co.edu.sena.agrosoft.core.util.Fechas
 import co.edu.sena.agrosoft.core.util.decimal
 import co.edu.sena.agrosoft.features.tareas.data.Tarea
 import com.composables.icons.lucide.*
-import androidx.compose.runtime.LaunchedEffect
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberCameraPickerLauncher
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import io.github.vinceglb.filekit.readBytes
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.decodeToImageBitmap
 
 @Composable
 fun TareasAprendizScreen(sesionId: Int) {
     val vm = viewModel(key = "tareas-aprendiz-$sesionId") { TareasViewModel() }
     val e = vm.estado
-
     LaunchedEffect(Unit) { vm.cargar() }
+
+    val alcance = rememberCoroutineScope()
+    var actividadFoto by remember { mutableStateOf<Int?>(null) }
+
+    val alElegir: (PlatformFile?) -> Unit = { archivo ->
+        val actividadId = actividadFoto
+        if (archivo != null && actividadId != null) {
+            alcance.launch {
+                runCatching { archivo.readBytes() }
+                    .onSuccess { vm.subirFoto(actividadId, it) }
+                    .onFailure { vm.avisarErrorFoto("No se pudo leer la foto.") }
+            }
+        }
+    }
+    val galeria = rememberFilePickerLauncher(type = FileKitType.Image) { alElegir(it) }
+    val camara = rememberCameraPickerLauncher { alElegir(it) }
 
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -67,7 +98,15 @@ fun TareasAprendizScreen(sesionId: Int) {
                     Vacio(e.filtro)
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        lista.forEach { tarea -> TarjetaTarea(tarea, e, vm) }
+                        lista.forEach { tarea ->
+                            TarjetaTarea(
+                                t = tarea,
+                                e = e,
+                                vm = vm,
+                                onCamara = { id -> actividadFoto = id; camara.launch() },
+                                onGaleria = { id -> actividadFoto = id; galeria.launch() },
+                            )
+                        }
                     }
                 }
             }
@@ -76,11 +115,19 @@ fun TareasAprendizScreen(sesionId: Int) {
 }
 
 @Composable
-private fun TarjetaTarea(t: Tarea, e: TareasEstado, vm: TareasViewModel) {
+private fun TarjetaTarea(
+    t: Tarea,
+    e: TareasEstado,
+    vm: TareasViewModel,
+    onCamara: (Int) -> Unit,
+    onGaleria: (Int) -> Unit,
+) {
     val abierta = e.abierta == t.id
     val entregando = e.entregando == t.id
     val (estadoTexto, urgente) = lineaEstado(t)
     val borde = if (t.estado == "DEVUELTA") Color(0xFFF5C2C2) else AgroColors.Border
+    val actividadId = t.actividad?.id
+    val puedeSubir = actividadId != null && (t.estado == "EN_PROGRESO" || t.estado == "DEVUELTA")
 
     Tarjeta(modifier = Modifier.fillMaxWidth(), borde = borde) {
         Row(
@@ -150,6 +197,17 @@ private fun TarjetaTarea(t: Tarea, e: TareasEstado, vm: TareasViewModel) {
                     Spacer(Modifier.height(12.dp))
                 }
 
+                if (actividadId != null && (puedeSubir || e.fotosGuardadas(actividadId) > 0)) {
+                    SeccionEvidencias(
+                        actividadId = actividadId,
+                        e = e,
+                        puedeSubir = puedeSubir,
+                        onCamara = { onCamara(actividadId) },
+                        onGaleria = { onGaleria(actividadId) },
+                    )
+                    Spacer(Modifier.height(14.dp))
+                }
+
                 when {
                     entregando -> FormularioEntrega(t, e, vm)
                     t.estado == "ASIGNADA" -> Boton("Iniciar tarea", primario = true, cargando = e.procesando) { vm.iniciar(t.id) }
@@ -174,8 +232,99 @@ private fun TarjetaTarea(t: Tarea, e: TareasEstado, vm: TareasViewModel) {
 }
 
 @Composable
+private fun SeccionEvidencias(
+    actividadId: Int,
+    e: TareasEstado,
+    puedeSubir: Boolean,
+    onCamara: () -> Unit,
+    onGaleria: () -> Unit,
+) {
+    val guardadas = e.fotosGuardadas(actividadId)
+    val locales = e.fotosLocales[actividadId].orEmpty()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AgroColors.SurfaceSoft)
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Lucide.Camera, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Fotos de evidencia", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AgroColors.Title, modifier = Modifier.weight(1f))
+            Text(
+                when (guardadas) {
+                    0 -> "Ninguna"
+                    1 -> "1 guardada"
+                    else -> "$guardadas guardadas"
+                },
+                fontSize = 11.sp,
+                color = AgroColors.TextMuted,
+            )
+        }
+
+        if (locales.isNotEmpty() || e.subiendoFoto) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                locales.forEach { Miniatura(it) }
+                if (e.subiendoFoto) {
+                    Box(
+                        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color.White),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = AgroColors.Primary)
+                    }
+                }
+            }
+        }
+
+        if (puedeSubir) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BotonIcono("Tomar foto", Lucide.Camera, Modifier.weight(1f), habilitado = !e.subiendoFoto, onClick = onCamara)
+                BotonIcono("Galería", Lucide.Image, Modifier.weight(1f), habilitado = !e.subiendoFoto, onClick = onGaleria)
+            }
+        }
+
+        e.errorFoto?.let {
+            Spacer(Modifier.height(10.dp))
+            Mensaje(it, AgroColors.Error, AgroColors.ErrorSoft, Lucide.CircleAlert)
+        }
+    }
+}
+
+@OptIn(ExperimentalResourceApi::class)
+@Composable
+private fun Miniatura(bytes: ByteArray) {
+    val imagen = remember(bytes) { runCatching { bytes.decodeToImageBitmap() }.getOrNull() }
+    Box(
+        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color.White),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imagen != null) {
+            Image(imagen, contentDescription = "Foto de evidencia", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(Lucide.Image, contentDescription = null, tint = AgroColors.TextMuted, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
 private fun FormularioEntrega(t: Tarea, e: TareasEstado, vm: TareasViewModel) {
     Column {
+        if (e.fotosGuardadas(t.actividad?.id) == 0) {
+            Mensaje(
+                "Tu instructor podría devolverte la tarea si no subes fotos como evidencia.",
+                AgroColors.Warning,
+                AgroColors.WarningSoft,
+                Lucide.TriangleAlert,
+            )
+            Spacer(Modifier.height(12.dp))
+        }
         Text("Horas trabajadas", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AgroColors.Text)
         Spacer(Modifier.height(6.dp))
         Campo(
@@ -296,7 +445,32 @@ private fun Boton(
 }
 
 @Composable
-private fun Mensaje(texto: String, color: Color, fondo: Color, icono: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun BotonIcono(
+    texto: String,
+    icono: ImageVector,
+    modifier: Modifier,
+    habilitado: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFFCFE2D0), RoundedCornerShape(12.dp))
+            .clickable(enabled = habilitado, onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val color = if (habilitado) AgroColors.Primary else AgroColors.TextMuted
+        Icon(icono, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(texto, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color)
+    }
+}
+
+@Composable
+private fun Mensaje(texto: String, color: Color, fondo: Color, icono: ImageVector) {
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(fondo).padding(12.dp),
         verticalAlignment = Alignment.Top,

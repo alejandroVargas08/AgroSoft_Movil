@@ -18,6 +18,10 @@ data class LoginEstado(
     val error: String? = null,
     val aviso: String? = null,
     val sesion: Sesion? = null,
+    val correoCodigo: String? = null,
+    val codigo: String = "",
+    val mensajeCodigo: String? = null,
+    val errorCodigo: String? = null,
 )
 
 class LoginViewModel(
@@ -46,16 +50,79 @@ class LoginViewModel(
         if (estado.cargando) return
         estado = estado.copy(cargando = true, error = null, aviso = null)
         viewModelScope.launch {
-            estado = when (val r = repositorio.iniciarSesion(estado.correo, estado.password)) {
-                is ResultadoLogin.Exito -> estado.copy(cargando = false, password = "", sesion = r.sesion)
-                is ResultadoLogin.AvisoCuenta -> estado.copy(cargando = false, aviso = r.mensaje)
-                is ResultadoLogin.Error -> estado.copy(cargando = false, error = r.mensaje)
+            aplicar(repositorio.iniciarSesion(estado.correo, estado.password))
+        }
+    }
+
+    fun cambiarCodigo(valor: String) {
+        val limpio = valor.filter { it.isDigit() }.take(6)
+        estado = estado.copy(codigo = limpio, errorCodigo = null)
+        if (limpio.length == 6) verificarCodigo()
+    }
+
+    fun verificarCodigo() {
+        val correo = estado.correoCodigo ?: return
+        if (estado.cargando) return
+        if (estado.codigo.length != 6) {
+            estado = estado.copy(errorCodigo = "El código tiene 6 dígitos.")
+            return
+        }
+        estado = estado.copy(cargando = true, errorCodigo = null)
+        viewModelScope.launch {
+            aplicar(repositorio.verificarCodigo(correo, estado.codigo))
+        }
+    }
+
+    fun reenviarCodigo() {
+        if (estado.cargando) return
+        estado = estado.copy(cargando = true, errorCodigo = null, codigo = "")
+        viewModelScope.launch {
+            when (val r = repositorio.iniciarSesion(estado.correo, estado.password)) {
+                is ResultadoLogin.RequiereCodigo -> estado = estado.copy(
+                    cargando = false,
+                    mensajeCodigo = "Te enviamos un código nuevo a tu correo.",
+                )
+                else -> aplicar(r)
             }
         }
+    }
+
+    fun cancelarCodigo() {
+        estado = estado.copy(correoCodigo = null, codigo = "", password = "", mensajeCodigo = null, errorCodigo = null)
     }
 
     fun cerrarSesion() {
         repositorio.cerrarSesion()
         estado = LoginEstado(verificando = false, correo = estado.correo)
+    }
+
+    private fun aplicar(resultado: ResultadoLogin) {
+        estado = when (resultado) {
+            is ResultadoLogin.Exito -> estado.copy(
+                cargando = false,
+                password = "",
+                codigo = "",
+                correoCodigo = null,
+                sesion = resultado.sesion,
+            )
+            is ResultadoLogin.RequiereCodigo -> estado.copy(
+                cargando = false,
+                correoCodigo = resultado.correo,
+                mensajeCodigo = resultado.mensaje,
+                codigo = "",
+                errorCodigo = null,
+            )
+            is ResultadoLogin.AvisoCuenta -> estado.copy(
+                cargando = false,
+                correoCodigo = null,
+                codigo = "",
+                aviso = resultado.mensaje,
+            )
+            is ResultadoLogin.Error -> if (estado.correoCodigo != null) {
+                estado.copy(cargando = false, codigo = "", errorCodigo = resultado.mensaje)
+            } else {
+                estado.copy(cargando = false, error = resultado.mensaje)
+            }
+        }
     }
 }

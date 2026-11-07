@@ -34,6 +34,7 @@ import co.edu.sena.agrosoft.core.ui.BarraSuperior
 import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.features.auth.data.Sesion
+import co.edu.sena.agrosoft.features.auth.presentation.CodigoDosPasosScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginViewModel
 import co.edu.sena.agrosoft.features.inicio.presentation.InicioAprendizScreen
@@ -46,10 +47,23 @@ fun App() {
         val login = viewModel { LoginViewModel() }
         val estado = login.estado
         val sesion = estado.sesion
+        val correoCodigo = estado.correoCodigo
 
         when {
             estado.verificando -> PantallaCarga()
-            sesion == null -> LoginScreen(
+            sesion != null -> AppPrincipal(sesion = sesion, onCerrarSesion = login::cerrarSesion)
+            correoCodigo != null -> CodigoDosPasosScreen(
+                correo = correoCodigo,
+                codigo = estado.codigo,
+                mensaje = estado.mensajeCodigo,
+                error = estado.errorCodigo,
+                cargando = estado.cargando,
+                onCodigoChange = login::cambiarCodigo,
+                onVerificar = login::verificarCodigo,
+                onReenviar = login::reenviarCodigo,
+                onVolver = login::cancelarCodigo,
+            )
+            else -> LoginScreen(
                 correo = estado.correo,
                 password = estado.password,
                 mensajeError = estado.error,
@@ -62,7 +76,6 @@ fun App() {
                 onOlvideContrasena = {},
                 onRegistro = {},
             )
-            else -> AppPrincipal(sesion = sesion, onCerrarSesion = login::cerrarSesion)
         }
     }
 }

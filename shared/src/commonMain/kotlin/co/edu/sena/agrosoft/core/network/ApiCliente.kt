@@ -18,15 +18,15 @@ object ApiConfig {
 object ApiCliente {
     var token: String? = null
 
+    private val formatoJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        explicitNulls = false
+    }
+
     val http = HttpClient {
         expectSuccess = false
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                explicitNulls = false
-            })
-        }
+        install(ContentNegotiation) { json(formatoJson) }
         install(HttpTimeout) {
             requestTimeoutMillis = 15_000
             connectTimeoutMillis = 10_000
@@ -34,6 +34,19 @@ object ApiCliente {
         defaultRequest {
             url(ApiConfig.BASE_URL)
             contentType(ContentType.Application.Json)
+            token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+        }
+    }
+
+    val subidas = HttpClient {
+        expectSuccess = false
+        install(ContentNegotiation) { json(formatoJson) }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60_000
+            connectTimeoutMillis = 10_000
+        }
+        defaultRequest {
+            url(ApiConfig.BASE_URL)
             token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
     }

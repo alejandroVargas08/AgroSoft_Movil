@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <key>NSCameraUsageDescription</key>
+    <string>AgroSoft usa la cámara para tomar fotos de evidencia de tus tareas.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>AgroSoft necesita acceso a tus fotos para adjuntarlas como evidencia.</string>
+    <dict>
+        <key>CADisableMinimumFrameDurationOnPhone</key>
+        <true/>
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSAllowsLocalNetworking</key>
+            <true/>
+        </dict>
+    </dict>
+</plist>

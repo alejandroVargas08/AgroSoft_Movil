@@ -6,9 +6,14 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.edu.sena.agrosoft.core.util.Fechas
+import co.edu.sena.agrosoft.features.tareas.data.Evidencia
+import co.edu.sena.agrosoft.features.tareas.data.EvidenciasRepositorio
 import co.edu.sena.agrosoft.features.tareas.data.Resultado
 import co.edu.sena.agrosoft.features.tareas.data.Tarea
 import co.edu.sena.agrosoft.features.tareas.data.TareasRepositorio
+import io.github.vinceglb.filekit.FileKit
+import io.github.vinceglb.filekit.ImageFormat
+import io.github.vinceglb.filekit.compressImage
 import kotlinx.coroutines.launch
 
 enum class FiltroTareas(val etiqueta: String) {
@@ -31,6 +36,10 @@ data class TareasEstado(
     val procesando: Boolean = false,
     val aviso: String? = null,
     val errorAccion: String? = null,
+    val evidencias: Map<Int, List<Evidencia>> = emptyMap(),
+    val fotosLocales: Map<Int, List<ByteArray>> = emptyMap(),
+    val subiendoFoto: Boolean = false,
+    val errorFoto: String? = null,
 ) {
     fun de(filtro: FiltroTareas): List<Tarea> = when (filtro) {
         FiltroTareas.PENDIENTES -> tareas
@@ -46,10 +55,14 @@ data class TareasEstado(
             .filter { it.estado == "APROBADA" }
             .sortedByDescending { Fechas.instante(it.revisadaEn)?.toEpochMilliseconds() ?: 0L }
     }
+
+    fun fotosGuardadas(actividadId: Int?): Int =
+        actividadId?.let { id -> evidencias[id]?.sumOf { it.imagenes.size } } ?: 0
 }
 
 class TareasViewModel(
     private val repositorio: TareasRepositorio = TareasRepositorio(),
+    private val evidenciasRepositorio: EvidenciasRepositorio = EvidenciasRepositorio(),
 ) : ViewModel() {
 
     var estado by mutableStateOf(TareasEstado())
@@ -62,20 +75,24 @@ class TareasViewModel(
                 is Resultado.Ok -> estado.copy(cargando = false, tareas = r.dato)
                 is Resultado.Falla -> estado.copy(cargando = false, error = r.mensaje)
             }
+            estado.abierta?.let { id -> actividadDe(id)?.let(::cargarEvidencias) }
         }
     }
 
     fun cambiarFiltro(filtro: FiltroTareas) {
-        estado = estado.copy(filtro = filtro, abierta = null, entregando = null, aviso = null, errorAccion = null)
+        estado = estado.copy(filtro = filtro, abierta = null, entregando = null, aviso = null, errorAccion = null, errorFoto = null)
     }
 
     fun alternar(id: Int) {
+        val abriendo = estado.abierta != id
         estado = estado.copy(
-            abierta = if (estado.abierta == id) null else id,
+            abierta = if (abriendo) id else null,
             entregando = null,
             aviso = null,
             errorAccion = null,
+            errorFoto = null,
         )
+        if (abriendo) actividadDe(id)?.let(::cargarEvidencias)
     }
 
     fun iniciar(id: Int) = ejecutar("Tarea iniciada.") { repositorio.iniciar(id) }
@@ -107,6 +124,48 @@ class TareasViewModel(
         }
         val comentario = estado.comentario.trim()
         ejecutar("Tarea entregada. Tu instructor la revisará.") { repositorio.entregar(id, horas, comentario) }
+    }
+
+    fun subirFoto(actividadId: Int, original: ByteArray) {
+        if (estado.subiendoFoto) return
+        estado = estado.copy(subiendoFoto = true, errorFoto = null, aviso = null)
+        viewModelScope.launch {
+            val jpeg = runCatching {
+                FileKit.compressImage(
+                    bytes = original,
+                    quality = 80,
+                    maxWidth = 1600,
+                    maxHeight = 1600,
+                    imageFormat = ImageFormat.JPEG,
+                )
+            }.getOrDefault(original)
+
+            estado = when (val r = evidenciasRepositorio.subirFoto(actividadId, jpeg)) {
+                is Resultado.Ok -> estado.copy(
+                    subiendoFoto = false,
+                    aviso = "Foto guardada como evidencia.",
+                    fotosLocales = estado.fotosLocales + (actividadId to estado.fotosLocales[actividadId].orEmpty() + jpeg),
+                    evidencias = estado.evidencias + (actividadId to estado.evidencias[actividadId].orEmpty() + r.dato),
+                )
+                is Resultado.Falla -> estado.copy(subiendoFoto = false, errorFoto = r.mensaje)
+            }
+        }
+    }
+
+    fun avisarErrorFoto(mensaje: String) {
+        estado = estado.copy(errorFoto = mensaje)
+    }
+
+    private fun actividadDe(tareaId: Int): Int? =
+        estado.tareas.firstOrNull { it.id == tareaId }?.actividad?.id
+
+    private fun cargarEvidencias(actividadId: Int) {
+        viewModelScope.launch {
+            val r = evidenciasRepositorio.listar(actividadId)
+            if (r is Resultado.Ok) {
+                estado = estado.copy(evidencias = estado.evidencias + (actividadId to r.dato))
+            }
+        }
     }
 
     private fun ejecutar(mensaje: String, llamada: suspend () -> Resultado<Tarea>) {

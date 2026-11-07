@@ -13,8 +13,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
@@ -33,6 +35,9 @@ data class Sesion(
 private data class LoginPeticion(val correo: String, val password: String)
 
 @Serializable
+private data class CodigoPeticion(val correo: String, val codigo: String)
+
+@Serializable
 private data class UsuarioLogin(val id: Int, val nombre: String, val correo: String, val rolId: Int)
 
 @Serializable
@@ -46,48 +51,27 @@ private data class MiAcceso(val id: Int, val rolId: Int, val permisos: List<Stri
 
 sealed interface ResultadoLogin {
     data class Exito(val sesion: Sesion) : ResultadoLogin
+    data class RequiereCodigo(val correo: String, val mensaje: String) : ResultadoLogin
     data class AvisoCuenta(val mensaje: String) : ResultadoLogin
     data class Error(val mensaje: String) : ResultadoLogin
 }
 
 class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
 
-    suspend fun iniciarSesion(correo: String, password: String): ResultadoLogin {
-        return try {
-            val respuesta = http.post("usuarios/login") {
-                setBody(LoginPeticion(correo.trim(), password))
-            }
-            if (!respuesta.status.isSuccess()) {
-                val (mensaje, estado) = leerError(respuesta)
-                return if (estado != null) ResultadoLogin.AvisoCuenta(mensaje) else ResultadoLogin.Error(mensaje)
-            }
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
-            val datos = respuesta.body<LoginRespuesta>()
-            ApiCliente.token = datos.accessToken
-
-            val accesoRespuesta = http.get("mi-acceso")
-            if (!accesoRespuesta.status.isSuccess()) {
-                ApiCliente.token = null
-                return ResultadoLogin.Error(leerError(accesoRespuesta).first)
-            }
-            val acceso = accesoRespuesta.body<MiAcceso>()
-
-            val sesion = Sesion(
-                id = datos.usuario.id,
-                nombre = datos.usuario.nombre.trim().substringBefore(" "),
-                nombreCompleto = datos.usuario.nombre.trim(),
-                iniciales = inicialesDe(datos.usuario.nombre),
-                correo = datos.usuario.correo,
-                rol = rolDesdePermisos(acceso.permisos),
-            )
-            AlmacenSesion.guardar(sesion, datos.accessToken)
-            ResultadoLogin.Exito(sesion)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ApiCliente.token = null
-            ResultadoLogin.Error("No se pudo conectar con el servidor. Revisa tu conexión.")
+    suspend fun iniciarSesion(correo: String, password: String): ResultadoLogin = conManejo {
+        val respuesta = http.post("usuarios/login") {
+            setBody(LoginPeticion(correo.trim(), password))
         }
+        procesarLogin(respuesta, correo.trim())
+    }
+
+    suspend fun verificarCodigo(correo: String, codigo: String): ResultadoLogin = conManejo {
+        val respuesta = http.post("usuarios/login/dos-pasos") {
+            setBody(CodigoPeticion(correo.trim(), codigo.trim()))
+        }
+        procesarLogin(respuesta, correo.trim())
     }
 
     suspend fun restaurarSesion(): Sesion? {
@@ -122,6 +106,56 @@ class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
         AlmacenSesion.borrar()
     }
 
+    private suspend fun conManejo(bloque: suspend () -> ResultadoLogin): ResultadoLogin = try {
+        bloque()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        ApiCliente.token = null
+        ResultadoLogin.Error("No se pudo conectar con el servidor. Revisa tu conexión.")
+    }
+
+    private suspend fun procesarLogin(respuesta: HttpResponse, correo: String): ResultadoLogin {
+        if (!respuesta.status.isSuccess()) {
+            val (mensaje, estado) = leerError(respuesta)
+            return if (estado != null) ResultadoLogin.AvisoCuenta(mensaje) else ResultadoLogin.Error(mensaje)
+        }
+
+        val cuerpo = respuesta.body<JsonObject>()
+        if (cuerpo["requiereDosPasos"]?.jsonPrimitive?.booleanOrNull == true) {
+            return ResultadoLogin.RequiereCodigo(
+                correo = cuerpo["correo"]?.jsonPrimitive?.contentOrNull ?: correo,
+                mensaje = cuerpo["message"]?.jsonPrimitive?.contentOrNull
+                    ?: "Te enviamos un código a tu correo para completar el inicio de sesión.",
+            )
+        }
+
+        val datos = json.decodeFromJsonElement(LoginRespuesta.serializer(), cuerpo)
+        return completarSesion(datos)
+    }
+
+    private suspend fun completarSesion(datos: LoginRespuesta): ResultadoLogin {
+        ApiCliente.token = datos.accessToken
+
+        val accesoRespuesta = http.get("mi-acceso")
+        if (!accesoRespuesta.status.isSuccess()) {
+            ApiCliente.token = null
+            return ResultadoLogin.Error(leerError(accesoRespuesta).first)
+        }
+        val acceso = accesoRespuesta.body<MiAcceso>()
+
+        val sesion = Sesion(
+            id = datos.usuario.id,
+            nombre = datos.usuario.nombre.trim().substringBefore(" "),
+            nombreCompleto = datos.usuario.nombre.trim(),
+            iniciales = inicialesDe(datos.usuario.nombre),
+            correo = datos.usuario.correo,
+            rol = rolDesdePermisos(acceso.permisos),
+        )
+        AlmacenSesion.guardar(sesion, datos.accessToken)
+        return ResultadoLogin.Exito(sesion)
+    }
+
     private suspend fun leerError(respuesta: HttpResponse): Pair<String, String?> {
         val cuerpo = runCatching { respuesta.body<JsonObject>() }.getOrNull()
         val mensaje = when (val m = cuerpo?.get("message")) {
@@ -149,4 +183,3 @@ class AuthRepositorio(private val http: HttpClient = ApiCliente.http) {
         return (partes.firstOrNull()?.take(1).orEmpty() + segunda?.take(1).orEmpty()).uppercase()
     }
 }
-//Paso al loginviewModel
