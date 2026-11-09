@@ -29,6 +29,10 @@ import co.edu.sena.agrosoft.core.theme.AgroSoftTheme
 import co.edu.sena.agrosoft.core.ui.BarraInferior
 import co.edu.sena.agrosoft.core.ui.BarraSuperior
 import co.edu.sena.agrosoft.core.ui.Tarjeta
+import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesScreen
+import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesViewModel
+import co.edu.sena.agrosoft.features.actividades.presentation.DetalleActividadScreen
+import co.edu.sena.agrosoft.features.actividades.presentation.NuevaActividadScreen
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.CodigoDosPasosScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
@@ -45,6 +49,9 @@ import co.edu.sena.agrosoft.features.sensores.presentation.FiltroSensores
 import co.edu.sena.agrosoft.features.sensores.presentation.SensoresScreen
 import co.edu.sena.agrosoft.features.sensores.presentation.SensoresViewModel
 import co.edu.sena.agrosoft.features.tareas.presentation.TareasAprendizScreen
+import co.edu.sena.agrosoft.features.terreno.presentation.DetalleVueloScreen
+import co.edu.sena.agrosoft.features.terreno.presentation.TerrenoScreen
+import co.edu.sena.agrosoft.features.terreno.presentation.TerrenoViewModel
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
@@ -128,6 +135,9 @@ private fun AppPrincipal(
     val pantalla = navegador.actual
     val avisos = viewModel(key = "avisos-${sesion.id}") { NotificacionesViewModel(sesion.id, sesion.rol) }
     val sensores = viewModel(key = "sensores-${sesion.id}") { SensoresViewModel() }
+    val terreno = viewModel(key = "terreno-${sesion.id}") { TerrenoViewModel() }
+    val actividades = viewModel(key = "actividades-${sesion.id}") { ActividadesViewModel() }
+    val creandoTarea = pantalla == Pantalla.ACTIVIDADES && actividades.estado.creando
 
     LaunchedEffect(pantalla) { avisos.refrescar() }
     LaunchedEffect(sesion.id) {
@@ -137,11 +147,13 @@ private fun AppPrincipal(
         }
     }
 
-    val titulo = if (pantalla == Pantalla.DETALLE_SENSOR) {
-        sensores.estado.seleccionado?.nombreSensor ?: tituloDe(pantalla, sesion.rol, sesion.nombre)
-    } else {
-        tituloDe(pantalla, sesion.rol, sesion.nombre)
-    }
+    val titulo = when {
+        creandoTarea -> "Nueva tarea"
+        pantalla == Pantalla.DETALLE_SENSOR -> sensores.estado.seleccionado?.nombreSensor
+        pantalla == Pantalla.DETALLE_VUELO -> terreno.estado.seleccionado?.nombre
+        pantalla == Pantalla.DETALLE_ACTIVIDAD -> actividades.estado.seleccionada?.actividad?.titulo
+        else -> null
+    } ?: tituloDe(pantalla, sesion.rol, sesion.nombre)
 
     Box(
         modifier = Modifier
@@ -156,12 +168,21 @@ private fun AppPrincipal(
             Spacer(Modifier.height(8.dp))
             BarraSuperior(
                 titulo = titulo,
-                subtitulo = subtituloDe(pantalla, sesion.rol),
+                subtitulo = if (creandoTarea) "Crea y asigna en un paso" else subtituloDe(pantalla, sesion.rol),
                 esInicio = pantalla == Pantalla.INICIO,
                 iniciales = sesion.iniciales,
                 notificaciones = avisos.estado.noLeidas,
-                onVolver = if (pantalla.principal) null else ({ navegador.volver() }),
-                onAcciones = {},
+                onVolver = when {
+                    creandoTarea -> ({ actividades.cancelarCreacion() })
+                    pantalla.principal -> null
+                    else -> ({ navegador.volver() })
+                },
+                onAcciones = {
+                    if (sesion.rol == Rol.INSTRUCTOR) {
+                        actividades.nuevaTarea()
+                        if (pantalla != Pantalla.ACTIVIDADES) navegador.ir(Pantalla.ACTIVIDADES)
+                    }
+                },
                 onCampana = { navegador.ir(Pantalla.NOTIFICACIONES) },
                 onAvatar = { navegador.ir(Pantalla.PERFIL) },
             )
@@ -183,7 +204,10 @@ private fun AppPrincipal(
                                 sensores.cambiarFiltro(FiltroSensores.TODOS)
                                 navegador.ir(Pantalla.SENSORES)
                             },
-                            onAbrirVuelo = { navegador.ir(Pantalla.DETALLE_VUELO) },
+                            onAbrirVuelo = {
+                                terreno.limpiarSeleccion()
+                                navegador.ir(Pantalla.DETALLE_VUELO)
+                            },
                         )
                         Rol.INSTRUCTOR -> InicioInstructorScreen(
                             sesionId = sesion.id,
@@ -200,6 +224,32 @@ private fun AppPrincipal(
                         Rol.INSTRUCTOR -> RevisionScreen(sesionId = sesion.id)
                         Rol.ADMINISTRADOR -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                     }
+                    Pantalla.ACTIVIDADES -> if (actividades.estado.creando) {
+                        NuevaActividadScreen(vm = actividades)
+                    } else {
+                        ActividadesScreen(
+                            vm = actividades,
+                            onAbrir = { id ->
+                                actividades.abrir(id)
+                                navegador.ir(Pantalla.DETALLE_ACTIVIDAD)
+                            },
+                        )
+                    }
+                    Pantalla.DETALLE_ACTIVIDAD -> DetalleActividadScreen(
+                        vm = actividades,
+                        onRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                    )
+                    Pantalla.TERRENO -> TerrenoScreen(
+                        vm = terreno,
+                        onAbrirVuelo = { id ->
+                            terreno.abrir(id)
+                            navegador.ir(Pantalla.DETALLE_VUELO)
+                        },
+                    )
+                    Pantalla.DETALLE_VUELO -> DetalleVueloScreen(
+                        vm = terreno,
+                        puedeAnalizar = sesion.rol != Rol.APRENDIZ,
+                    )
                     Pantalla.SENSORES -> SensoresScreen(
                         vm = sensores,
                         onAbrir = { id ->
@@ -237,6 +287,7 @@ private fun AppPrincipal(
                         sesion = sesion,
                         onIr = { destino ->
                             if (destino == Pantalla.SENSORES) sensores.cambiarFiltro(FiltroSensores.TODOS)
+                            if (destino == Pantalla.ACTIVIDADES) actividades.cancelarCreacion()
                             if (destino.principal) navegador.cambiarPestana(destino) else navegador.ir(destino)
                         },
                         onCerrarSesion = onCerrarSesion,
