@@ -2,21 +2,18 @@ package co.edu.sena.agrosoft
 
 import agrosoft.shared.generated.resources.Res
 import agrosoft.shared.generated.resources.logo_agrosoft
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -32,17 +29,40 @@ import co.edu.sena.agrosoft.core.theme.AgroSoftTheme
 import co.edu.sena.agrosoft.core.ui.BarraInferior
 import co.edu.sena.agrosoft.core.ui.BarraSuperior
 import co.edu.sena.agrosoft.core.ui.Tarjeta
-import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.CodigoDosPasosScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginViewModel
 import co.edu.sena.agrosoft.features.inicio.presentation.InicioAprendizScreen
+import co.edu.sena.agrosoft.features.inicio.presentation.InicioInstructorScreen
+import co.edu.sena.agrosoft.features.mas.presentation.MasScreen
+import co.edu.sena.agrosoft.features.notificaciones.presentation.NotificacionesScreen
+import co.edu.sena.agrosoft.features.notificaciones.presentation.NotificacionesViewModel
+import co.edu.sena.agrosoft.features.perfil.presentation.PerfilScreen
+import co.edu.sena.agrosoft.features.revision.presentation.RevisionScreen
+import co.edu.sena.agrosoft.features.sensores.presentation.DetalleSensorScreen
+import co.edu.sena.agrosoft.features.sensores.presentation.FiltroSensores
+import co.edu.sena.agrosoft.features.sensores.presentation.SensoresScreen
+import co.edu.sena.agrosoft.features.sensores.presentation.SensoresViewModel
 import co.edu.sena.agrosoft.features.tareas.presentation.TareasAprendizScreen
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import coil3.request.crossfade
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Monitor
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 
 @Composable
 fun App() {
+    setSingletonImageLoaderFactory { contexto ->
+        ImageLoader.Builder(contexto)
+            .components { add(KtorNetworkFetcherFactory()) }
+            .crossfade(true)
+            .build()
+    }
+
     AgroSoftTheme {
         val login = viewModel { LoginViewModel() }
         val estado = login.estado
@@ -51,7 +71,11 @@ fun App() {
 
         when {
             estado.verificando -> PantallaCarga()
-            sesion != null -> AppPrincipal(sesion = sesion, onCerrarSesion = login::cerrarSesion)
+            sesion != null -> AppPrincipal(
+                sesion = sesion,
+                onSesionActualizada = login::actualizarSesion,
+                onCerrarSesion = login::cerrarSesion,
+            )
             correoCodigo != null -> CodigoDosPasosScreen(
                 correo = correoCodigo,
                 codigo = estado.codigo,
@@ -95,9 +119,29 @@ private fun PantallaCarga() {
 }
 
 @Composable
-private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
+private fun AppPrincipal(
+    sesion: Sesion,
+    onSesionActualizada: (Sesion) -> Unit,
+    onCerrarSesion: () -> Unit,
+) {
     val navegador = remember(sesion.id) { Navegador() }
     val pantalla = navegador.actual
+    val avisos = viewModel(key = "avisos-${sesion.id}") { NotificacionesViewModel(sesion.id, sesion.rol) }
+    val sensores = viewModel(key = "sensores-${sesion.id}") { SensoresViewModel() }
+
+    LaunchedEffect(pantalla) { avisos.refrescar() }
+    LaunchedEffect(sesion.id) {
+        while (true) {
+            delay(60_000)
+            avisos.refrescar()
+        }
+    }
+
+    val titulo = if (pantalla == Pantalla.DETALLE_SENSOR) {
+        sensores.estado.seleccionado?.nombreSensor ?: tituloDe(pantalla, sesion.rol, sesion.nombre)
+    } else {
+        tituloDe(pantalla, sesion.rol, sesion.nombre)
+    }
 
     Box(
         modifier = Modifier
@@ -111,11 +155,11 @@ private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
         ) {
             Spacer(Modifier.height(8.dp))
             BarraSuperior(
-                titulo = tituloDe(pantalla, sesion.rol, sesion.nombre),
+                titulo = titulo,
                 subtitulo = subtituloDe(pantalla, sesion.rol),
                 esInicio = pantalla == Pantalla.INICIO,
                 iniciales = sesion.iniciales,
-                notificaciones = 3,
+                notificaciones = avisos.estado.noLeidas,
                 onVolver = if (pantalla.principal) null else ({ navegador.volver() }),
                 onAcciones = {},
                 onCampana = { navegador.ir(Pantalla.NOTIFICACIONES) },
@@ -131,22 +175,73 @@ private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
                     .padding(bottom = if (pantalla.principal) 110.dp else 24.dp),
             ) {
                 when (pantalla) {
-                    Pantalla.INICIO -> if (sesion.rol == Rol.APRENDIZ) {
-                        InicioAprendizScreen(
+                    Pantalla.INICIO -> when (sesion.rol) {
+                        Rol.APRENDIZ -> InicioAprendizScreen(
                             sesionId = sesion.id,
                             onAbrirTareas = { navegador.cambiarPestana(Pantalla.TRABAJO) },
-                            onAbrirSensores = { navegador.ir(Pantalla.SENSORES) },
+                            onAbrirSensores = {
+                                sensores.cambiarFiltro(FiltroSensores.TODOS)
+                                navegador.ir(Pantalla.SENSORES)
+                            },
                             onAbrirVuelo = { navegador.ir(Pantalla.DETALLE_VUELO) },
                         )
-                    } else {
-                        EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
+                        Rol.INSTRUCTOR -> InicioInstructorScreen(
+                            sesionId = sesion.id,
+                            onAbrirRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                            onAbrirSensores = {
+                                sensores.cambiarFiltro(FiltroSensores.ALERTA)
+                                navegador.ir(Pantalla.SENSORES)
+                            },
+                        )
+                        Rol.ADMINISTRADOR -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                     }
-                    Pantalla.TRABAJO -> if (sesion.rol == Rol.APRENDIZ) {
-                        TareasAprendizScreen(sesionId = sesion.id)
-                    } else {
-                        EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
+                    Pantalla.TRABAJO -> when (sesion.rol) {
+                        Rol.APRENDIZ -> TareasAprendizScreen(sesionId = sesion.id)
+                        Rol.INSTRUCTOR -> RevisionScreen(sesionId = sesion.id)
+                        Rol.ADMINISTRADOR -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                     }
-                    Pantalla.MAS -> PantallaMasTemporal(navegador, onCerrarSesion)
+                    Pantalla.SENSORES -> SensoresScreen(
+                        vm = sensores,
+                        onAbrir = { id ->
+                            sensores.abrir(id)
+                            navegador.ir(Pantalla.DETALLE_SENSOR)
+                        },
+                    )
+                    Pantalla.DETALLE_SENSOR -> DetalleSensorScreen(vm = sensores)
+                    Pantalla.NOTIFICACIONES -> NotificacionesScreen(
+                        vm = avisos,
+                        onAbrir = { n ->
+                            if (n.tipo == "tarea" || n.tipo == "solicitud") {
+                                navegador.cambiarPestana(Pantalla.TRABAJO)
+                            }
+                        },
+                    )
+                    Pantalla.PERFIL -> PerfilScreen(
+                        sesion = sesion,
+                        onActualizado = { p ->
+                            val completo = p.nombreCompleto
+                            onSesionActualizada(
+                                sesion.copy(
+                                    nombre = p.nombre.trim().substringBefore(" "),
+                                    nombreCompleto = completo,
+                                    iniciales = completo.split(" ").filter { it.isNotBlank() }.take(2)
+                                        .map { it.first().uppercaseChar() }.joinToString(""),
+                                    correo = p.correo ?: sesion.correo,
+                                )
+                            )
+                        },
+                        onNotificaciones = { navegador.ir(Pantalla.NOTIFICACIONES) },
+                        onCerrarSesion = onCerrarSesion,
+                    )
+                    Pantalla.MAS -> MasScreen(
+                        sesion = sesion,
+                        onIr = { destino ->
+                            if (destino == Pantalla.SENSORES) sensores.cambiarFiltro(FiltroSensores.TODOS)
+                            if (destino.principal) navegador.cambiarPestana(destino) else navegador.ir(destino)
+                        },
+                        onCerrarSesion = onCerrarSesion,
+                    )
+                    Pantalla.SOLO_WEB -> SoloWeb()
                     else -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                 }
             }
@@ -156,10 +251,7 @@ private fun AppPrincipal(sesion: Sesion, onCerrarSesion: () -> Unit) {
             BarraInferior(
                 rol = sesion.rol,
                 actual = pantalla,
-                insignias = mapOf(
-                    Pantalla.TRABAJO to if (sesion.rol == Rol.ADMINISTRADOR) 4 else 3,
-                    Pantalla.ALERTAS to 4,
-                ),
+                insignias = mapOf(Pantalla.TRABAJO to avisos.estado.pendientesTrabajo),
                 onCambiar = { navegador.cambiarPestana(it) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -190,36 +282,23 @@ private fun EnConstruccion(nombre: String) {
 }
 
 @Composable
-private fun PantallaMasTemporal(navegador: Navegador, onCerrarSesion: () -> Unit) {
-    Column {
-        TituloSeccion("Probar pantallas internas")
-        listOf(
-            "Sensores IoT" to Pantalla.SENSORES,
-            "Actividades" to Pantalla.ACTIVIDADES,
-            "Perfil" to Pantalla.PERFIL,
-        ).forEach { (texto, destino) ->
-            Tarjeta(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                onClick = { navegador.ir(destino) },
-            ) {
-                Text(
-                    texto,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AgroColors.Title,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = onCerrarSesion,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = AgroColors.Error),
-            border = BorderStroke(1.dp, AgroColors.Error),
+private fun SoloWeb() {
+    Tarjeta(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Cerrar sesión", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Icon(Lucide.Monitor, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(12.dp))
+            Text("Disponible en la web", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = AgroColors.Title)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Esta función se usa desde la versión web de AgroSoft. Muy pronto también estará en la app.",
+                fontSize = 12.sp,
+                color = AgroColors.TextMuted,
+                textAlign = TextAlign.Center,
+                lineHeight = 17.sp,
+            )
         }
     }
 }

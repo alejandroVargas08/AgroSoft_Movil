@@ -5,10 +5,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import co.edu.sena.agrosoft.core.session.AlmacenSesion
 import co.edu.sena.agrosoft.features.auth.data.AuthRepositorio
 import co.edu.sena.agrosoft.features.auth.data.ResultadoLogin
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import kotlinx.coroutines.launch
+
 
 data class LoginEstado(
     val verificando: Boolean = true,
@@ -94,6 +96,13 @@ class LoginViewModel(
     fun cerrarSesion() {
         repositorio.cerrarSesion()
         estado = LoginEstado(verificando = false, correo = estado.correo)
+    }
+
+    fun actualizarSesion(nueva: Sesion){
+        AlmacenSesion.token()?.let {
+            AlmacenSesion.guardar(nueva, it)
+        }
+        estado = estado.copy(sesion = nueva)
     }
 
     private fun aplicar(resultado: ResultadoLogin) {
