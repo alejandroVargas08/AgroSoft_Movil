@@ -15,6 +15,8 @@ import co.edu.sena.agrosoft.features.tareas.data.TareasRepositorio
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import co.edu.sena.agrosoft.features.admin.data.AdminRepositorio
+import co.edu.sena.agrosoft.features.admin.data.UsuarioAdmin
 
 data class AvisosEstado(
     val cargando: Boolean = false,
@@ -31,6 +33,7 @@ class NotificacionesViewModel(
     private val repositorio: NotificacionesRepositorio = NotificacionesRepositorio(),
     private val tareas: TareasRepositorio = TareasRepositorio(),
     private val revision: RevisionRepositorio = RevisionRepositorio(),
+    private val admin: AdminRepositorio = AdminRepositorio(),
 ) : ViewModel() {
 
     var estado by mutableStateOf(AvisosEstado())
@@ -91,6 +94,6 @@ class NotificacionesViewModel(
         Rol.APRENDIZ -> (tareas.listar() as? Resultado.Ok)?.dato
             ?.count { it.estado in setOf("ASIGNADA", "EN_PROGRESO", "DEVUELTA") }
         Rol.INSTRUCTOR -> (revision.porRevisar() as? Resultado.Ok)?.dato?.size
-        Rol.ADMINISTRADOR -> 0
+        Rol.ADMINISTRADOR -> (admin.solicitudes() as? Resultado.Ok)?.dato?.size
     }
 }

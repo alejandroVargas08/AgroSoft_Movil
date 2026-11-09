@@ -33,6 +33,12 @@ import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesScreen
 import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesViewModel
 import co.edu.sena.agrosoft.features.actividades.presentation.DetalleActividadScreen
 import co.edu.sena.agrosoft.features.actividades.presentation.NuevaActividadScreen
+import co.edu.sena.agrosoft.features.admin.presentation.AdminViewModel
+import co.edu.sena.agrosoft.features.admin.presentation.AlertasScreen
+import co.edu.sena.agrosoft.features.admin.presentation.InicioAdminScreen
+import co.edu.sena.agrosoft.features.admin.presentation.SolicitudesScreen
+import co.edu.sena.agrosoft.features.agrobot.presentation.AgroBotScreen
+import co.edu.sena.agrosoft.features.agrobot.presentation.AgroBotViewModel
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.CodigoDosPasosScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
@@ -133,13 +139,20 @@ private fun AppPrincipal(
 ) {
     val navegador = remember(sesion.id) { Navegador() }
     val pantalla = navegador.actual
+    val esAdmin = sesion.rol == Rol.ADMINISTRADOR
     val avisos = viewModel(key = "avisos-${sesion.id}") { NotificacionesViewModel(sesion.id, sesion.rol) }
     val sensores = viewModel(key = "sensores-${sesion.id}") { SensoresViewModel() }
     val terreno = viewModel(key = "terreno-${sesion.id}") { TerrenoViewModel() }
     val actividades = viewModel(key = "actividades-${sesion.id}") { ActividadesViewModel() }
+    val admin = viewModel(key = "admin-${sesion.id}") { AdminViewModel() }
+    val agrobot = viewModel(key = "agrobot-${sesion.id}") { AgroBotViewModel(sesion.id) }
     val creandoTarea = pantalla == Pantalla.ACTIVIDADES && actividades.estado.creando
+    val chatAbierto = pantalla == Pantalla.AGROBOT && agrobot.estado.abierta
 
-    LaunchedEffect(pantalla) { avisos.refrescar() }
+    LaunchedEffect(pantalla) {
+        avisos.refrescar()
+        if (esAdmin) admin.cargar()
+    }
     LaunchedEffect(sesion.id) {
         while (true) {
             delay(60_000)
@@ -149,11 +162,24 @@ private fun AppPrincipal(
 
     val titulo = when {
         creandoTarea -> "Nueva tarea"
+        chatAbierto -> agrobot.estado.titulo?.takeIf { it.isNotBlank() } ?: "AgroBot"
         pantalla == Pantalla.DETALLE_SENSOR -> sensores.estado.seleccionado?.nombreSensor
         pantalla == Pantalla.DETALLE_VUELO -> terreno.estado.seleccionado?.nombre
         pantalla == Pantalla.DETALLE_ACTIVIDAD -> actividades.estado.seleccionada?.actividad?.titulo
         else -> null
     } ?: tituloDe(pantalla, sesion.rol, sesion.nombre)
+
+    val subtitulo = when {
+        creandoTarea -> "Crea y asigna en un paso"
+        chatAbierto -> "Asistente agrícola de AgroSoft"
+        else -> subtituloDe(pantalla, sesion.rol)
+    }
+
+    val abrirSensor: (Int) -> Unit = { id ->
+        sensores.cargar()
+        sensores.abrir(id)
+        navegador.ir(Pantalla.DETALLE_SENSOR)
+    }
 
     Box(
         modifier = Modifier
@@ -168,141 +194,71 @@ private fun AppPrincipal(
             Spacer(Modifier.height(8.dp))
             BarraSuperior(
                 titulo = titulo,
-                subtitulo = if (creandoTarea) "Crea y asigna en un paso" else subtituloDe(pantalla, sesion.rol),
+                subtitulo = subtitulo,
                 esInicio = pantalla == Pantalla.INICIO,
                 iniciales = sesion.iniciales,
                 notificaciones = avisos.estado.noLeidas,
                 onVolver = when {
                     creandoTarea -> ({ actividades.cancelarCreacion() })
+                    chatAbierto -> ({ agrobot.cerrarChat() })
                     pantalla.principal -> null
                     else -> ({ navegador.volver() })
                 },
                 onAcciones = {
-                    if (sesion.rol == Rol.INSTRUCTOR) {
-                        actividades.nuevaTarea()
-                        if (pantalla != Pantalla.ACTIVIDADES) navegador.ir(Pantalla.ACTIVIDADES)
+                    when (sesion.rol) {
+                        Rol.INSTRUCTOR -> {
+                            actividades.nuevaTarea()
+                            if (pantalla != Pantalla.ACTIVIDADES) navegador.ir(Pantalla.ACTIVIDADES)
+                        }
+                        Rol.ADMINISTRADOR -> navegador.cambiarPestana(Pantalla.TRABAJO)
+                        Rol.APRENDIZ -> navegador.cambiarPestana(Pantalla.TRABAJO)
                     }
                 },
                 onCampana = { navegador.ir(Pantalla.NOTIFICACIONES) },
                 onAvatar = { navegador.ir(Pantalla.PERFIL) },
             )
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = if (pantalla.principal) 110.dp else 24.dp),
-            ) {
-                when (pantalla) {
-                    Pantalla.INICIO -> when (sesion.rol) {
-                        Rol.APRENDIZ -> InicioAprendizScreen(
-                            sesionId = sesion.id,
-                            onAbrirTareas = { navegador.cambiarPestana(Pantalla.TRABAJO) },
-                            onAbrirSensores = {
-                                sensores.cambiarFiltro(FiltroSensores.TODOS)
-                                navegador.ir(Pantalla.SENSORES)
-                            },
-                            onAbrirVuelo = {
-                                terreno.limpiarSeleccion()
-                                navegador.ir(Pantalla.DETALLE_VUELO)
-                            },
-                        )
-                        Rol.INSTRUCTOR -> InicioInstructorScreen(
-                            sesionId = sesion.id,
-                            onAbrirRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
-                            onAbrirSensores = {
-                                sensores.cambiarFiltro(FiltroSensores.ALERTA)
-                                navegador.ir(Pantalla.SENSORES)
-                            },
-                        )
-                        Rol.ADMINISTRADOR -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
-                    }
-                    Pantalla.TRABAJO -> when (sesion.rol) {
-                        Rol.APRENDIZ -> TareasAprendizScreen(sesionId = sesion.id)
-                        Rol.INSTRUCTOR -> RevisionScreen(sesionId = sesion.id)
-                        Rol.ADMINISTRADOR -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
-                    }
-                    Pantalla.ACTIVIDADES -> if (actividades.estado.creando) {
-                        NuevaActividadScreen(vm = actividades)
-                    } else {
-                        ActividadesScreen(
-                            vm = actividades,
-                            onAbrir = { id ->
-                                actividades.abrir(id)
-                                navegador.ir(Pantalla.DETALLE_ACTIVIDAD)
-                            },
-                        )
-                    }
-                    Pantalla.DETALLE_ACTIVIDAD -> DetalleActividadScreen(
-                        vm = actividades,
-                        onRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
-                    )
-                    Pantalla.TERRENO -> TerrenoScreen(
-                        vm = terreno,
-                        onAbrirVuelo = { id ->
-                            terreno.abrir(id)
-                            navegador.ir(Pantalla.DETALLE_VUELO)
-                        },
-                    )
-                    Pantalla.DETALLE_VUELO -> DetalleVueloScreen(
-                        vm = terreno,
-                        puedeAnalizar = sesion.rol != Rol.APRENDIZ,
-                    )
-                    Pantalla.SENSORES -> SensoresScreen(
-                        vm = sensores,
-                        onAbrir = { id ->
-                            sensores.abrir(id)
-                            navegador.ir(Pantalla.DETALLE_SENSOR)
-                        },
-                    )
-                    Pantalla.DETALLE_SENSOR -> DetalleSensorScreen(vm = sensores)
-                    Pantalla.NOTIFICACIONES -> NotificacionesScreen(
-                        vm = avisos,
-                        onAbrir = { n ->
-                            if (n.tipo == "tarea" || n.tipo == "solicitud") {
-                                navegador.cambiarPestana(Pantalla.TRABAJO)
-                            }
-                        },
-                    )
-                    Pantalla.PERFIL -> PerfilScreen(
+            if (pantalla == Pantalla.AGROBOT) {
+                AgroBotScreen(
+                    vm = agrobot,
+                    nombre = sesion.nombre,
+                    rol = sesion.rol,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = if (pantalla.principal) 110.dp else 24.dp),
+                ) {
+                    Contenido(
+                        pantalla = pantalla,
                         sesion = sesion,
-                        onActualizado = { p ->
-                            val completo = p.nombreCompleto
-                            onSesionActualizada(
-                                sesion.copy(
-                                    nombre = p.nombre.trim().substringBefore(" "),
-                                    nombreCompleto = completo,
-                                    iniciales = completo.split(" ").filter { it.isNotBlank() }.take(2)
-                                        .map { it.first().uppercaseChar() }.joinToString(""),
-                                    correo = p.correo ?: sesion.correo,
-                                )
-                            )
-                        },
-                        onNotificaciones = { navegador.ir(Pantalla.NOTIFICACIONES) },
+                        navegador = navegador,
+                        avisos = avisos,
+                        sensores = sensores,
+                        terreno = terreno,
+                        actividades = actividades,
+                        admin = admin,
+                        abrirSensor = abrirSensor,
+                        onSesionActualizada = onSesionActualizada,
                         onCerrarSesion = onCerrarSesion,
                     )
-                    Pantalla.MAS -> MasScreen(
-                        sesion = sesion,
-                        onIr = { destino ->
-                            if (destino == Pantalla.SENSORES) sensores.cambiarFiltro(FiltroSensores.TODOS)
-                            if (destino == Pantalla.ACTIVIDADES) actividades.cancelarCreacion()
-                            if (destino.principal) navegador.cambiarPestana(destino) else navegador.ir(destino)
-                        },
-                        onCerrarSesion = onCerrarSesion,
-                    )
-                    Pantalla.SOLO_WEB -> SoloWeb()
-                    else -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
                 }
             }
         }
 
-        if (pantalla.principal) {
+        if (pantalla.principal && !chatAbierto) {
             BarraInferior(
                 rol = sesion.rol,
                 actual = pantalla,
-                insignias = mapOf(Pantalla.TRABAJO to avisos.estado.pendientesTrabajo),
+                insignias = buildMap {
+                    put(Pantalla.TRABAJO, avisos.estado.pendientesTrabajo)
+                    if (esAdmin) put(Pantalla.ALERTAS, admin.estado.totalAlertas)
+                },
                 onCambiar = { navegador.cambiarPestana(it) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -310,6 +266,137 @@ private fun AppPrincipal(
                     .padding(bottom = 16.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun Contenido(
+    pantalla: Pantalla,
+    sesion: Sesion,
+    navegador: Navegador,
+    avisos: NotificacionesViewModel,
+    sensores: SensoresViewModel,
+    terreno: TerrenoViewModel,
+    actividades: ActividadesViewModel,
+    admin: AdminViewModel,
+    abrirSensor: (Int) -> Unit,
+    onSesionActualizada: (Sesion) -> Unit,
+    onCerrarSesion: () -> Unit,
+) {
+    val esAdmin = sesion.rol == Rol.ADMINISTRADOR
+    when (pantalla) {
+        Pantalla.INICIO -> when (sesion.rol) {
+            Rol.APRENDIZ -> InicioAprendizScreen(
+                sesionId = sesion.id,
+                onAbrirTareas = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                onAbrirSensores = {
+                    sensores.cambiarFiltro(FiltroSensores.TODOS)
+                    navegador.ir(Pantalla.SENSORES)
+                },
+                onAbrirVuelo = {
+                    terreno.limpiarSeleccion()
+                    navegador.ir(Pantalla.DETALLE_VUELO)
+                },
+            )
+            Rol.INSTRUCTOR -> InicioInstructorScreen(
+                sesionId = sesion.id,
+                onAbrirRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                onAbrirSensores = {
+                    sensores.cambiarFiltro(FiltroSensores.ALERTA)
+                    navegador.ir(Pantalla.SENSORES)
+                },
+            )
+            Rol.ADMINISTRADOR -> InicioAdminScreen(
+                vm = admin,
+                onSolicitudes = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+                onAlertas = { navegador.cambiarPestana(Pantalla.ALERTAS) },
+                onSensores = {
+                    sensores.cambiarFiltro(FiltroSensores.TODOS)
+                    navegador.ir(Pantalla.SENSORES)
+                },
+            )
+        }
+        Pantalla.TRABAJO -> when (sesion.rol) {
+            Rol.APRENDIZ -> TareasAprendizScreen(sesionId = sesion.id)
+            Rol.INSTRUCTOR -> RevisionScreen(sesionId = sesion.id)
+            Rol.ADMINISTRADOR -> SolicitudesScreen(vm = admin)
+        }
+        Pantalla.ALERTAS -> AlertasScreen(
+            vm = admin,
+            onAbrirSensor = abrirSensor,
+            onAbrirInsumo = { navegador.ir(Pantalla.SOLO_WEB) },
+        )
+        Pantalla.ACTIVIDADES -> if (actividades.estado.creando) {
+            NuevaActividadScreen(vm = actividades)
+        } else {
+            ActividadesScreen(
+                vm = actividades,
+                onAbrir = { id ->
+                    actividades.abrir(id)
+                    navegador.ir(Pantalla.DETALLE_ACTIVIDAD)
+                },
+            )
+        }
+        Pantalla.DETALLE_ACTIVIDAD -> DetalleActividadScreen(
+            vm = actividades,
+            onRevisar = { navegador.cambiarPestana(Pantalla.TRABAJO) },
+        )
+        Pantalla.TERRENO -> TerrenoScreen(
+            vm = terreno,
+            onAbrirVuelo = { id ->
+                terreno.abrir(id)
+                navegador.ir(Pantalla.DETALLE_VUELO)
+            },
+        )
+        Pantalla.DETALLE_VUELO -> DetalleVueloScreen(
+            vm = terreno,
+            puedeAnalizar = sesion.rol != Rol.APRENDIZ,
+        )
+        Pantalla.SENSORES -> SensoresScreen(
+            vm = sensores,
+            onAbrir = { id ->
+                sensores.abrir(id)
+                navegador.ir(Pantalla.DETALLE_SENSOR)
+            },
+        )
+        Pantalla.DETALLE_SENSOR -> DetalleSensorScreen(vm = sensores)
+        Pantalla.NOTIFICACIONES -> NotificacionesScreen(
+            vm = avisos,
+            onAbrir = { n ->
+                when (n.tipo) {
+                    "tarea", "solicitud" -> navegador.cambiarPestana(Pantalla.TRABAJO)
+                    "insumo_bajo", "herramienta_danada" -> if (esAdmin) navegador.cambiarPestana(Pantalla.ALERTAS)
+                }
+            },
+        )
+        Pantalla.PERFIL -> PerfilScreen(
+            sesion = sesion,
+            onActualizado = { p ->
+                val completo = p.nombreCompleto
+                onSesionActualizada(
+                    sesion.copy(
+                        nombre = p.nombre.trim().substringBefore(" "),
+                        nombreCompleto = completo,
+                        iniciales = completo.split(" ").filter { it.isNotBlank() }.take(2)
+                            .map { it.first().uppercaseChar() }.joinToString(""),
+                        correo = p.correo ?: sesion.correo,
+                    )
+                )
+            },
+            onNotificaciones = { navegador.ir(Pantalla.NOTIFICACIONES) },
+            onCerrarSesion = onCerrarSesion,
+        )
+        Pantalla.MAS -> MasScreen(
+            sesion = sesion,
+            onIr = { destino ->
+                if (destino == Pantalla.SENSORES) sensores.cambiarFiltro(FiltroSensores.TODOS)
+                if (destino == Pantalla.ACTIVIDADES) actividades.cancelarCreacion()
+                if (destino.principal) navegador.cambiarPestana(destino) else navegador.ir(destino)
+            },
+            onCerrarSesion = onCerrarSesion,
+        )
+        Pantalla.SOLO_WEB -> SoloWeb()
+        else -> EnConstruccion(tituloDe(pantalla, sesion.rol, sesion.nombre))
     }
 }
 
