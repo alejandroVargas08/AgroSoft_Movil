@@ -10,10 +10,15 @@ import co.edu.sena.agrosoft.features.agrobot.data.Conversacion
 import co.edu.sena.agrosoft.features.tareas.data.Resultado
 import kotlinx.coroutines.launch
 
+const val MAX_FOTOS = 5
+private const val PREGUNTA_FOTO = "¿Qué ves en esta imagen? ¿Hay plagas, enfermedades o deficiencias?"
+
 data class MensajeChat(
     val deUsuario: Boolean,
     val texto: String,
     val error: Boolean = false,
+    val fotos: List<ByteArray> = emptyList(),
+    val cantidadFotos: Int = 0,
 )
 
 data class AgroBotEstado(
@@ -25,10 +30,16 @@ data class AgroBotEstado(
     val mensajes: List<MensajeChat> = emptyList(),
     val cargandoMensajes: Boolean = false,
     val enviando: Boolean = false,
+    val analizandoFoto: Boolean = false,
     val texto: String = "",
-    val ultimoEnviado: String? = null,
+    val adjuntos: List<ByteArray> = emptyList(),
+    val preparandoFoto: Boolean = false,
+    val ultimoTexto: String? = null,
+    val ultimasFotos: List<ByteArray> = emptyList(),
     val error: String? = null,
-)
+) {
+    val puedeEnviar: Boolean get() = !enviando && !preparandoFoto && (texto.isNotBlank() || adjuntos.isNotEmpty())
+}
 
 class AgroBotViewModel(
     private val usuarioId: Int,
@@ -52,7 +63,14 @@ class AgroBotViewModel(
     }
 
     fun nueva() {
-        estado = estado.copy(abierta = true, conversacionId = null, titulo = null, mensajes = emptyList(), texto = "")
+        estado = estado.copy(
+            abierta = true,
+            conversacionId = null,
+            titulo = null,
+            mensajes = emptyList(),
+            texto = "",
+            adjuntos = emptyList(),
+        )
     }
 
     fun abrir(c: Conversacion) {
@@ -63,12 +81,19 @@ class AgroBotViewModel(
             mensajes = emptyList(),
             cargandoMensajes = true,
             texto = "",
+            adjuntos = emptyList(),
         )
         viewModelScope.launch {
             estado = when (val r = repositorio.mensajes(c.id)) {
                 is Resultado.Ok -> estado.copy(
                     cargandoMensajes = false,
-                    mensajes = r.dato.map { MensajeChat(deUsuario = it.rol == "user", texto = it.contenido) },
+                    mensajes = r.dato.map {
+                        MensajeChat(
+                            deUsuario = it.rol == "user",
+                            texto = it.contenido,
+                            cantidadFotos = if (it.tieneImagenes) it.cantidadImagenes else 0,
+                        )
+                    },
                 )
                 is Resultado.Falla -> estado.copy(
                     cargandoMensajes = false,
@@ -79,7 +104,7 @@ class AgroBotViewModel(
     }
 
     fun cerrarChat() {
-        estado = estado.copy(abierta = false, texto = "")
+        estado = estado.copy(abierta = false, texto = "", adjuntos = emptyList())
         cargar()
     }
 
@@ -87,38 +112,79 @@ class AgroBotViewModel(
         estado = estado.copy(texto = v)
     }
 
-    fun enviar(sugerencia: String? = null) {
-        val texto = (sugerencia ?: estado.texto).trim()
-        if (texto.isEmpty() || estado.enviando) return
+    fun preparandoFoto(activo: Boolean) {
+        estado = estado.copy(preparandoFoto = activo)
+    }
+
+    fun adjuntar(foto: ByteArray) {
         if (!estado.abierta) nueva()
+        if (estado.adjuntos.size >= MAX_FOTOS) return
+        estado = estado.copy(adjuntos = estado.adjuntos + foto, preparandoFoto = false)
+    }
+
+    fun quitarAdjunto(indice: Int) {
+        estado = estado.copy(adjuntos = estado.adjuntos.filterIndexed { i, _ -> i != indice })
+    }
+
+    fun enviar(sugerencia: String? = null) {
+        val fotos = if (sugerencia == null) estado.adjuntos else emptyList()
+        val escrito = (sugerencia ?: estado.texto).trim()
+        if ((escrito.isEmpty() && fotos.isEmpty()) || estado.enviando) return
+        if (!estado.abierta) nueva()
+        val texto = escrito.ifEmpty { PREGUNTA_FOTO }
+
         estado = estado.copy(
-            mensajes = estado.mensajes + MensajeChat(true, texto),
+            mensajes = estado.mensajes + MensajeChat(true, texto, fotos = fotos, cantidadFotos = fotos.size),
             texto = "",
+            adjuntos = emptyList(),
             enviando = true,
-            ultimoEnviado = texto,
+            analizandoFoto = fotos.isNotEmpty(),
+            ultimoTexto = texto,
+            ultimasFotos = fotos,
         )
+
         viewModelScope.launch {
-            val id = estado.conversacionId ?: when (val c = repositorio.crear(texto.take(48))) {
+            val titulo = if (fotos.isNotEmpty() && escrito.isEmpty()) "Análisis de foto" else texto.take(48)
+            val id = estado.conversacionId ?: when (val c = repositorio.crear(titulo)) {
                 is Resultado.Ok -> {
                     estado = estado.copy(conversacionId = c.dato.id, titulo = c.dato.titulo)
                     c.dato.id
                 }
                 is Resultado.Falla -> {
-                    estado = estado.copy(enviando = false, mensajes = estado.mensajes + MensajeChat(false, c.mensaje, error = true))
+                    estado = estado.copy(
+                        enviando = false,
+                        analizandoFoto = false,
+                        mensajes = estado.mensajes + MensajeChat(false, c.mensaje, error = true),
+                    )
                     return@launch
                 }
             }
-            estado = when (val r = repositorio.enviar(id, texto)) {
-                is Resultado.Ok -> estado.copy(enviando = false, mensajes = estado.mensajes + MensajeChat(false, r.dato.respuesta))
-                is Resultado.Falla -> estado.copy(enviando = false, mensajes = estado.mensajes + MensajeChat(false, r.mensaje, error = true))
+
+            val r = if (fotos.isNotEmpty()) repositorio.analizarImagenes(id, fotos, texto) else repositorio.enviar(id, texto)
+            estado = when (r) {
+                is Resultado.Ok -> estado.copy(
+                    enviando = false,
+                    analizandoFoto = false,
+                    mensajes = estado.mensajes + MensajeChat(false, r.dato.respuesta),
+                )
+                is Resultado.Falla -> estado.copy(
+                    enviando = false,
+                    analizandoFoto = false,
+                    mensajes = estado.mensajes + MensajeChat(false, r.mensaje, error = true),
+                )
             }
         }
     }
 
     fun reintentar() {
-        val ultimo = estado.ultimoEnviado ?: return
-        estado = estado.copy(mensajes = estado.mensajes.dropLastWhile { it.error }.dropLast(1))
-        enviar(ultimo)
+        val texto = estado.ultimoTexto ?: return
+        val fotos = estado.ultimasFotos
+        estado = estado.copy(
+            mensajes = estado.mensajes.dropLastWhile { it.error }.dropLast(1),
+            adjuntos = fotos,
+            texto = texto,
+        )
+        enviar()
     }
 
     fun eliminar(c: Conversacion) {

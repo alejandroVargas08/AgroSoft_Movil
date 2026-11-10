@@ -1,5 +1,6 @@
 package co.edu.sena.agrosoft.core.network
 
+import co.edu.sena.agrosoft.Entorno
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -12,10 +13,11 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object ApiConfig {
-    const val BASE_URL = "http://localhost:3000/api/"
+    const val BASE_URL = Entorno.API_URL
 }
 
 object ApiCliente {
+
     var token: String? = null
 
     private val formatoJson = Json {

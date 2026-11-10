@@ -43,6 +43,8 @@ import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.auth.presentation.CodigoDosPasosScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginScreen
 import co.edu.sena.agrosoft.features.auth.presentation.LoginViewModel
+import co.edu.sena.agrosoft.features.auth.presentation.RecuperarScreen
+import co.edu.sena.agrosoft.features.auth.presentation.RegistroScreen
 import co.edu.sena.agrosoft.features.inicio.presentation.InicioAprendizScreen
 import co.edu.sena.agrosoft.features.inicio.presentation.InicioInstructorScreen
 import co.edu.sena.agrosoft.features.mas.presentation.MasScreen
@@ -67,6 +69,8 @@ import com.composables.icons.lucide.Monitor
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 
+private enum class Acceso { LOGIN, RECUPERAR, REGISTRO }
+
 @Composable
 fun App() {
     setSingletonImageLoaderFactory { contexto ->
@@ -81,13 +85,22 @@ fun App() {
         val estado = login.estado
         val sesion = estado.sesion
         val correoCodigo = estado.correoCodigo
+        var acceso by remember { mutableStateOf(Acceso.LOGIN) }
+
+        val volverAlLogin: (String) -> Unit = { correo ->
+            if (correo.isNotBlank()) login.cambiarCorreo(correo)
+            acceso = Acceso.LOGIN
+        }
 
         when {
             estado.verificando -> PantallaCarga()
             sesion != null -> AppPrincipal(
                 sesion = sesion,
                 onSesionActualizada = login::actualizarSesion,
-                onCerrarSesion = login::cerrarSesion,
+                onCerrarSesion = {
+                    acceso = Acceso.LOGIN
+                    login.cerrarSesion()
+                },
             )
             correoCodigo != null -> CodigoDosPasosScreen(
                 correo = correoCodigo,
@@ -100,6 +113,15 @@ fun App() {
                 onReenviar = login::reenviarCodigo,
                 onVolver = login::cancelarCodigo,
             )
+            acceso == Acceso.RECUPERAR -> RecuperarScreen(
+                correoInicial = estado.correo,
+                onVolver = { acceso = Acceso.LOGIN },
+                onTerminar = volverAlLogin,
+            )
+            acceso == Acceso.REGISTRO -> RegistroScreen(
+                onVolver = { acceso = Acceso.LOGIN },
+                onTerminar = volverAlLogin,
+            )
             else -> LoginScreen(
                 correo = estado.correo,
                 password = estado.password,
@@ -110,8 +132,8 @@ fun App() {
                 onPasswordChange = login::cambiarPassword,
                 onIniciarSesion = login::iniciarSesion,
                 onBiometria = {},
-                onOlvideContrasena = {},
-                onRegistro = {},
+                onOlvideContrasena = { acceso = Acceso.RECUPERAR },
+                onRegistro = { acceso = Acceso.REGISTRO },
             )
         }
     }

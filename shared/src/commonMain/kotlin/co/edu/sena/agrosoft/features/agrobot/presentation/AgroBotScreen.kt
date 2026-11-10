@@ -1,8 +1,10 @@
 package co.edu.sena.agrosoft.features.agrobot.presentation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -13,16 +15,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -38,17 +42,25 @@ import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.core.util.Fechas
 import com.composables.icons.lucide.*
+import io.github.vinceglb.filekit.FileKit
+import io.github.vinceglb.filekit.ImageFormat
+import io.github.vinceglb.filekit.PlatformFile
+import io.github.vinceglb.filekit.compressImage
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberCameraPickerLauncher
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import io.github.vinceglb.filekit.readBytes
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.decodeToImageBitmap
 
 private fun sugerenciasDe(rol: Rol): List<String> = when (rol) {
     Rol.APRENDIZ -> listOf(
         "¿Puedo trabajar con el UV de hoy?",
         "¿Cómo está la humedad del lote?",
-        "¿Qué debo tener en cuenta en un riego?",
         "Explícame qué es el NDVI",
     )
     Rol.INSTRUCTOR -> listOf(
         "¿Qué lotes tienen estrés?",
-        "¿Qué lotes tuvieron humedad alta?",
         "Resume el último vuelo de dron",
         "Sugiere tareas para esta semana",
     )
@@ -56,19 +68,54 @@ private fun sugerenciasDe(rol: Rol): List<String> = when (rol) {
         "Resumen de alertas de hoy",
         "¿Qué insumos están bajos?",
         "Ingresos vs egresos del mes",
-        "¿Cómo están las estaciones?",
     )
 }
 
 @Composable
 fun AgroBotScreen(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Modifier = Modifier) {
+    val alcance = rememberCoroutineScope()
+
+    val recibir: (PlatformFile?) -> Unit = { archivo ->
+        if (archivo != null) {
+            vm.preparandoFoto(true)
+            alcance.launch {
+                val foto = runCatching {
+                    FileKit.compressImage(
+                        bytes = archivo.readBytes(),
+                        quality = 75,
+                        maxWidth = 1280,
+                        maxHeight = 1280,
+                        imageFormat = ImageFormat.JPEG,
+                    )
+                }.getOrNull()
+                if (foto != null) vm.adjuntar(foto) else vm.preparandoFoto(false)
+            }
+        }
+    }
+    val camara = rememberCameraPickerLauncher { recibir(it) }
+    val galeria = rememberFilePickerLauncher(type = FileKitType.Image) { recibir(it) }
+
     LaunchedEffect(Unit) { vm.cargar() }
-    if (vm.estado.abierta) Chat(vm, modifier) else Entrada(vm, nombre, rol, modifier)
+
+    if (vm.estado.abierta) {
+        Chat(vm, modifier, onCamara = { camara.launch() }, onGaleria = { galeria.launch() })
+    } else {
+        Entrada(vm, nombre, rol, modifier, onCamara = { camara.launch() }, onGaleria = { galeria.launch() })
+    }
 }
 
 @Composable
-private fun Entrada(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Modifier) {
+private fun Entrada(
+    vm: AgroBotViewModel,
+    nombre: String,
+    rol: Rol,
+    modifier: Modifier,
+    onCamara: () -> Unit,
+    onGaleria: () -> Unit,
+) {
     val e = vm.estado
+    var menuFoto by remember { mutableStateOf(false) }
+
     Column(
         modifier
             .fillMaxSize()
@@ -89,29 +136,25 @@ private fun Entrada(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Mo
         }
 
         TituloSeccion("Sugerencias para ti")
-        sugerenciasDe(rol).chunked(2).forEach { fila ->
-            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                fila.forEachIndexed { i, s ->
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .heightIn(min = 94.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color.White)
-                            .border(1.dp, AgroColors.BorderCard, RoundedCornerShape(20.dp))
-                            .clickable { vm.enviar(s) }
-                            .padding(12.dp),
-                    ) {
-                        Icon(
-                            if (i == 0) Lucide.MessageCircle else Lucide.Sparkles,
-                            contentDescription = null,
-                            tint = AgroColors.Primary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(s, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF264B32), lineHeight = 17.sp)
-                    }
+        val tarjetas: List<@Composable RowScope.() -> Unit> = buildList {
+            add {
+                Box(Modifier.weight(1f)) {
+                    Sugerencia(Lucide.Camera, "¿Qué tiene mi cultivo? Envía una foto", destacada = true) { menuFoto = true }
+                    MenuFoto(
+                        abierto = menuFoto,
+                        onCerrar = { menuFoto = false },
+                        onCamara = { menuFoto = false; onCamara() },
+                        onGaleria = { menuFoto = false; onGaleria() },
+                    )
                 }
+            }
+            sugerenciasDe(rol).forEach { s ->
+                add { Box(Modifier.weight(1f)) { Sugerencia(Lucide.Sparkles, s) { vm.enviar(s) } } }
+            }
+        }
+        tarjetas.chunked(2).forEach { fila ->
+            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                fila.forEach { it() }
                 if (fila.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -173,10 +216,45 @@ private fun Entrada(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Mo
 }
 
 @Composable
-private fun Chat(vm: AgroBotViewModel, modifier: Modifier) {
+private fun Sugerencia(icono: androidx.compose.ui.graphics.vector.ImageVector, texto: String, destacada: Boolean = false, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 94.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (destacada) AgroColors.PrimarySoft else Color.White)
+            .border(1.dp, if (destacada) Color(0xFFBCD7C0) else AgroColors.BorderCard, RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+    ) {
+        Icon(icono, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(texto, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF264B32), lineHeight = 17.sp)
+    }
+}
+
+@Composable
+private fun MenuFoto(abierto: Boolean, onCerrar: () -> Unit, onCamara: () -> Unit, onGaleria: () -> Unit) {
+    DropdownMenu(expanded = abierto, onDismissRequest = onCerrar) {
+        DropdownMenuItem(
+            text = { Text("Tomar foto", fontSize = 14.sp) },
+            leadingIcon = { Icon(Lucide.Camera, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            onClick = onCamara,
+        )
+        DropdownMenuItem(
+            text = { Text("Elegir de la galería", fontSize = 14.sp) },
+            leadingIcon = { Icon(Lucide.Image, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            onClick = onGaleria,
+        )
+    }
+}
+
+@Composable
+private fun Chat(vm: AgroBotViewModel, modifier: Modifier, onCamara: () -> Unit, onGaleria: () -> Unit) {
     val e = vm.estado
     val lista = rememberLazyListState()
     val total = e.mensajes.size + 1 + if (e.enviando) 1 else 0
+    var menuFoto by remember { mutableStateOf(false) }
 
     LaunchedEffect(e.mensajes.size, e.enviando) {
         if (total > 0) lista.animateScrollToItem(total - 1)
@@ -191,7 +269,7 @@ private fun Chat(vm: AgroBotViewModel, modifier: Modifier) {
         ) {
             item {
                 Burbuja(
-                    MensajeChat(false, "Hola, soy AgroBot. Puedo ayudarte con tus tareas, cultivos, estaciones y análisis de dron."),
+                    MensajeChat(false, "Hola, soy AgroBot. Puedo ayudarte con tus tareas, cultivos, estaciones y análisis de dron. También puedes enviarme fotos de tus plantas."),
                     pie = false,
                 )
             }
@@ -207,51 +285,127 @@ private fun Chat(vm: AgroBotViewModel, modifier: Modifier) {
                 Burbuja(m, pie = ultimoDelBot && !m.error, onReintentar = if (m.error && i == e.mensajes.lastIndex) vm::reintentar else null)
             }
             if (e.enviando) {
-                item { Escribiendo() }
+                item { Escribiendo(e.analizandoFoto) }
             }
         }
 
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .background(AgroColors.Background)
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Bottom,
         ) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.White)
-                    .border(1.dp, AgroColors.Border, RoundedCornerShape(24.dp))
-                    .padding(horizontal = 16.dp, vertical = 13.dp),
-            ) {
-                if (e.texto.isEmpty()) {
-                    Text("Escribe tu pregunta…", fontSize = 14.sp, color = AgroColors.Placeholder)
+            if (e.adjuntos.isNotEmpty() || e.preparandoFoto) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    e.adjuntos.forEachIndexed { i, foto ->
+                        Box(Modifier.size(64.dp)) {
+                            Miniatura(foto, Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)))
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(3.dp)
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.6f))
+                                    .clickable { vm.quitarAdjunto(i) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Lucide.X, contentDescription = "Quitar", tint = Color.White, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                    }
+                    if (e.preparandoFoto) {
+                        Box(
+                            Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(AgroColors.PrimarySoft),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = AgroColors.Primary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        }
+                    }
                 }
-                BasicTextField(
-                    value = e.texto,
-                    onValueChange = vm::cambiarTexto,
-                    textStyle = TextStyle(fontSize = 14.sp, color = AgroColors.Text),
-                    cursorBrush = SolidColor(AgroColors.Primary),
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
-            Spacer(Modifier.width(8.dp))
-            val activo = e.texto.isNotBlank() && !e.enviando
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (activo) AgroColors.Primary else AgroColors.Border)
-                    .clickable(enabled = activo) { vm.enviar() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Lucide.Send, contentDescription = "Enviar", tint = Color.White, modifier = Modifier.size(19.dp))
+
+            Row(verticalAlignment = Alignment.Bottom) {
+                Box {
+                    val puedeAdjuntar = e.adjuntos.size < MAX_FOTOS && !e.enviando
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .border(1.dp, AgroColors.Border, CircleShape)
+                            .clickable(enabled = puedeAdjuntar) { menuFoto = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Lucide.Camera,
+                            contentDescription = "Adjuntar foto",
+                            tint = if (puedeAdjuntar) AgroColors.Primary else AgroColors.Placeholder,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    MenuFoto(
+                        abierto = menuFoto,
+                        onCerrar = { menuFoto = false },
+                        onCamara = { menuFoto = false; onCamara() },
+                        onGaleria = { menuFoto = false; onGaleria() },
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White)
+                        .border(1.dp, AgroColors.Border, RoundedCornerShape(24.dp))
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                ) {
+                    if (e.texto.isEmpty()) {
+                        Text(
+                            if (e.adjuntos.isNotEmpty()) "Pregunta algo sobre la foto (opcional)" else "Escribe tu pregunta…",
+                            fontSize = 14.sp,
+                            color = AgroColors.Placeholder,
+                            maxLines = 1,
+                        )
+                    }
+                    BasicTextField(
+                        value = e.texto,
+                        onValueChange = vm::cambiarTexto,
+                        textStyle = TextStyle(fontSize = 14.sp, color = AgroColors.Text),
+                        cursorBrush = SolidColor(AgroColors.Primary),
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(if (e.puedeEnviar) AgroColors.Primary else AgroColors.Border)
+                        .clickable(enabled = e.puedeEnviar) { vm.enviar() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Lucide.Send, contentDescription = "Enviar", tint = Color.White, modifier = Modifier.size(19.dp))
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun Miniatura(bytes: ByteArray, modifier: Modifier) {
+    val imagen = remember(bytes) { runCatching { bytes.decodeToImageBitmap() }.getOrNull() }
+    if (imagen != null) {
+        Image(imagen, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier)
+    } else {
+        Box(modifier.background(AgroColors.PrimarySoft), contentAlignment = Alignment.Center) {
+            Icon(Lucide.Image, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -259,7 +413,22 @@ private fun Chat(vm: AgroBotViewModel, modifier: Modifier) {
 @Composable
 private fun Burbuja(m: MensajeChat, pie: Boolean, onReintentar: (() -> Unit)? = null) {
     if (m.deUsuario) {
-        Row(Modifier.fillMaxWidth().padding(start = 48.dp), horizontalArrangement = Arrangement.End) {
+        Column(Modifier.fillMaxWidth().padding(start = 48.dp), horizontalAlignment = Alignment.End) {
+            if (m.fotos.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                    m.fotos.take(3).forEach { Miniatura(it, Modifier.size(if (m.fotos.size == 1) 180.dp else 88.dp).clip(RoundedCornerShape(16.dp))) }
+                }
+                if (m.fotos.size > 3) Text("+${m.fotos.size - 3} fotos", fontSize = 10.sp, color = AgroColors.TextMuted)
+            } else if (m.cantidadFotos > 0) {
+                Row(
+                    Modifier.padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp)).background(AgroColors.PrimarySoft).padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Lucide.Image, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (m.cantidadFotos == 1) "1 foto" else "${m.cantidadFotos} fotos", fontSize = 11.sp, color = AgroColors.Primary)
+                }
+            }
             Text(
                 m.texto,
                 fontSize = 13.sp,
@@ -312,7 +481,7 @@ private fun Burbuja(m: MensajeChat, pie: Boolean, onReintentar: (() -> Unit)? = 
 }
 
 @Composable
-private fun Escribiendo() {
+private fun Escribiendo(conFoto: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(32.dp).clip(RoundedCornerShape(12.dp)).background(AgroColors.Primary),
@@ -327,7 +496,11 @@ private fun Escribiendo() {
         ) {
             CircularProgressIndicator(color = AgroColors.Primary, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(8.dp))
-            Text("AgroBot está escribiendo…", fontSize = 12.sp, color = AgroColors.TextMuted)
+            Text(
+                if (conFoto) "Analizando la foto… puede tardar un poco" else "AgroBot está escribiendo…",
+                fontSize = 12.sp,
+                color = AgroColors.TextMuted,
+            )
         }
     }
 }
