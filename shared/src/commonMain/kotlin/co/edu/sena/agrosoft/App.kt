@@ -38,7 +38,7 @@ import co.edu.sena.agrosoft.core.seguridad.Credenciales
 import co.edu.sena.agrosoft.core.seguridad.autenticarBiometria
 import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.core.theme.AgroSoftTheme
-import co.edu.sena.agrosoft.core.ui.BarraInferior
+import co.edu.sena.agrosoft.core.ui.BarraInferiorCristal
 import co.edu.sena.agrosoft.core.ui.BarraSuperior
 import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesScreen
@@ -78,6 +78,8 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Monitor
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -320,6 +322,7 @@ private fun AppPrincipal(
     val navegador = remember(sesion.id) { Navegador() }
     val pantalla = navegador.actual
     val esAdmin = sesion.rol == Rol.ADMINISTRADOR
+    val hazeState = rememberHazeState()
     val avisos = viewModel(key = "avisos-${sesion.id}") { NotificacionesViewModel(sesion.id, sesion.rol) }
     val sensores = viewModel(key = "sensores-${sesion.id}") { SensoresViewModel() }
     val terreno = viewModel(key = "terreno-${sesion.id}") { TerrenoViewModel() }
@@ -369,6 +372,8 @@ private fun AppPrincipal(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(AgroColors.Background)
+                .hazeSource(hazeState)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         ) {
             Spacer(Modifier.height(8.dp))
@@ -432,18 +437,19 @@ private fun AppPrincipal(
         }
 
         if (pantalla.principal && !chatAbierto) {
-            BarraInferior(
+            BarraInferiorCristal(
                 rol = sesion.rol,
                 actual = pantalla,
                 insignias = buildMap {
                     put(Pantalla.TRABAJO, avisos.estado.pendientesTrabajo)
                     if (esAdmin) put(Pantalla.ALERTAS, admin.estado.totalAlertas)
                 },
+                hazeState = hazeState,
                 onCambiar = { navegador.cambiarPestana(it) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 12.dp),
             )
         }
     }

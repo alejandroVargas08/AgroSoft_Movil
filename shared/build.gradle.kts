@@ -94,6 +94,8 @@ kotlin {
             implementation("io.github.vinceglb:filekit-dialogs-compose:0.17.0")
             implementation("io.coil-kt.coil3:coil-compose:3.3.0")
             implementation("io.coil-kt.coil3:coil-network-ktor3:3.3.0")
+            implementation("dev.chrisbanes.haze:haze:2.1.0")
+            implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
