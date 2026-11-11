@@ -70,6 +70,8 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
             implementation("io.ktor:ktor-client-okhttp:3.5.0")
+            api("androidx.biometric:biometric:1.1.0")
+            implementation("androidx.security:security-crypto:1.1.0-alpha06")
         }
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.5.0")

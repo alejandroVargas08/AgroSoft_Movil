@@ -94,6 +94,9 @@ fun MasScreen(
         }
 
         Spacer(Modifier.height(16.dp))
+        TarjetaBiometria(sesion)
+
+        Spacer(Modifier.height(12.dp))
         Button(
             onClick = vm::pedirSalida,
             modifier = Modifier.fillMaxWidth().height(48.dp),

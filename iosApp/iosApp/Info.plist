@@ -11,7 +11,18 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>AgroSoft usa la cámara para tomar fotos de evidencia de tus tareas.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>AgroSoft usa Face ID para que ingreses sin escribir tu contraseña.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>AgroSoft necesita acceso a tus fotos para adjuntarlas como evidencia.</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 </dict>
 </plist>

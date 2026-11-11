@@ -6,8 +6,10 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
+import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -53,6 +55,9 @@ data class CambiosPerfil(
     val dosPasosActivo: Boolean? = null,
 )
 
+@Serializable
+private data class LoginDto(val correo: String, val password: String)
+
 class PerfilRepositorio(private val http: HttpClient = ApiCliente.http) {
 
     suspend fun obtener(id: Int): Resultado<Perfil> = try {
@@ -67,6 +72,20 @@ class PerfilRepositorio(private val http: HttpClient = ApiCliente.http) {
     suspend fun actualizar(id: Int, cambios: CambiosPerfil): Resultado<Unit> = try {
         val r = http.patch("usuarios/$id") { setBody(cambios) }
         if (r.status.isSuccess()) Resultado.Ok(Unit) else Resultado.Falla(mensajeDe(r))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Resultado.Falla("No se pudo conectar con el servidor.")
+    }
+
+    suspend fun verificarContrasena(correo: String, password: String): Resultado<Unit> = try {
+        val r = http.post("usuarios/login") { setBody(LoginDto(correo, password)) }
+        when {
+            r.status.isSuccess() -> Resultado.Ok(Unit)
+            r.status == HttpStatusCode.Unauthorized || r.status == HttpStatusCode.BadRequest ->
+                Resultado.Falla("La contraseña no es correcta.")
+            else -> Resultado.Falla(mensajeDe(r))
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

@@ -2,18 +2,27 @@ package co.edu.sena.agrosoft
 
 import agrosoft.shared.generated.resources.Res
 import agrosoft.shared.generated.resources.logo_agrosoft
+import agrosoft.shared.generated.resources.logo_sena
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -24,6 +33,9 @@ import co.edu.sena.agrosoft.core.navigation.Pantalla
 import co.edu.sena.agrosoft.core.navigation.Rol
 import co.edu.sena.agrosoft.core.navigation.subtituloDe
 import co.edu.sena.agrosoft.core.navigation.tituloDe
+import co.edu.sena.agrosoft.core.seguridad.AccesoBiometrico
+import co.edu.sena.agrosoft.core.seguridad.Credenciales
+import co.edu.sena.agrosoft.core.seguridad.autenticarBiometria
 import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.core.theme.AgroSoftTheme
 import co.edu.sena.agrosoft.core.ui.BarraInferior
@@ -67,6 +79,7 @@ import coil3.request.crossfade
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Monitor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
 private enum class Acceso { LOGIN, RECUPERAR, REGISTRO }
@@ -87,13 +100,62 @@ fun App() {
         val correoCodigo = estado.correoCodigo
         var acceso by remember { mutableStateOf(Acceso.LOGIN) }
 
+        var bienvenidaLista by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            delay(1_200)
+            bienvenidaLista = true
+        }
+
+        val alcance = rememberCoroutineScope()
+        val tipoBio = AccesoBiometrico.tipo
+        var pendientes by remember { mutableStateOf<Credenciales?>(null) }
+        var porBiometria by remember { mutableStateOf(false) }
+        var autoIntentado by remember { mutableStateOf(false) }
+        var aviso by remember { mutableStateOf<String?>(null) }
+
+        val ingresarConBiometria: () -> Unit = {
+            when {
+                tipoBio == null ->
+                    aviso = "Este dispositivo no tiene Face ID ni huella configurados. Actívalos en los ajustes del teléfono."
+                !AccesoBiometrico.activo -> {
+                    AccesoBiometrico.rechazado = false
+                    aviso = "Primero ingresa con tu correo y contraseña. Después te preguntaremos si quieres activar ${tipoBio.nombre}."
+                }
+                else -> alcance.launch {
+                    val c = AccesoBiometrico.obtener("Ingresa a AgroSoft")
+                    if (c != null) {
+                        login.cambiarCorreo(c.correo)
+                        login.cambiarPassword(c.password)
+                        porBiometria = true
+                        login.iniciarSesion()
+                    }
+                }
+            }
+        }
+
+        LaunchedEffect(estado.error) {
+            if (porBiometria && estado.error != null) {
+                porBiometria = false
+                AccesoBiometrico.desactivar()
+                aviso = "No se pudo ingresar con ${tipoBio?.nombre ?: "biometría"}. Si cambiaste tu contraseña, ingresa con ella y vuelve a activarlo."
+            }
+        }
+
+        LaunchedEffect(sesion?.id) {
+            if (sesion != null) {
+                porBiometria = false
+                val puedeOfrecer = AccesoBiometrico.tipo != null && !AccesoBiometrico.activo && !AccesoBiometrico.rechazado
+                if (!puedeOfrecer) pendientes = null
+            }
+        }
+
         val volverAlLogin: (String) -> Unit = { correo ->
             if (correo.isNotBlank()) login.cambiarCorreo(correo)
             acceso = Acceso.LOGIN
         }
 
         when {
-            estado.verificando -> PantallaCarga()
+            estado.verificando || !bienvenidaLista -> PantallaCarga()
             sesion != null -> AppPrincipal(
                 sesion = sesion,
                 onSesionActualizada = login::actualizarSesion,
@@ -122,18 +184,85 @@ fun App() {
                 onVolver = { acceso = Acceso.LOGIN },
                 onTerminar = volverAlLogin,
             )
-            else -> LoginScreen(
-                correo = estado.correo,
-                password = estado.password,
-                mensajeError = estado.error,
-                avisoCuenta = estado.aviso,
-                cargando = estado.cargando,
-                onCorreoChange = login::cambiarCorreo,
-                onPasswordChange = login::cambiarPassword,
-                onIniciarSesion = login::iniciarSesion,
-                onBiometria = {},
-                onOlvideContrasena = { acceso = Acceso.RECUPERAR },
-                onRegistro = { acceso = Acceso.REGISTRO },
+            else -> {
+                LaunchedEffect(Unit) {
+                    if (!autoIntentado && AccesoBiometrico.tipo != null && AccesoBiometrico.activo) {
+                        autoIntentado = true
+                        ingresarConBiometria()
+                    }
+                }
+                LoginScreen(
+                    correo = estado.correo,
+                    password = estado.password,
+                    mensajeError = estado.error,
+                    avisoCuenta = estado.aviso,
+                    cargando = estado.cargando,
+                    onCorreoChange = login::cambiarCorreo,
+                    onPasswordChange = login::cambiarPassword,
+                    onIniciarSesion = {
+                        pendientes = Credenciales(estado.correo.trim(), estado.password)
+                        porBiometria = false
+                        login.iniciarSesion()
+                    },
+                    onBiometria = ingresarConBiometria,
+                    onOlvideContrasena = { acceso = Acceso.RECUPERAR },
+                    onRegistro = { acceso = Acceso.REGISTRO },
+                )
+            }
+        }
+
+        val credenciales = pendientes
+        if (sesion != null && credenciales != null && tipoBio != null) {
+            AlertDialog(
+                onDismissRequest = { pendientes = null },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                title = { Text("¿Ingresar con ${tipoBio.nombre}?", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AgroColors.Text) },
+                text = {
+                    Text(
+                        "La próxima vez podrás entrar a AgroSoft con ${tipoBio.nombre}, sin escribir tu contraseña. Tus datos quedan cifrados en este dispositivo.",
+                        fontSize = 14.sp,
+                        color = AgroColors.TextSecondary,
+                        lineHeight = 20.sp,
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            alcance.launch {
+                                if (autenticarBiometria("Confirma para activar ${tipoBio.nombre}")) {
+                                    AccesoBiometrico.activar(credenciales)
+                                }
+                                pendientes = null
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AgroColors.Primary),
+                    ) { Text("Activar", fontWeight = FontWeight.SemiBold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        AccesoBiometrico.rechazado = true
+                        pendientes = null
+                    }) { Text("Ahora no", color = AgroColors.TextSecondary) }
+                },
+            )
+        }
+
+        aviso?.let { texto ->
+            AlertDialog(
+                onDismissRequest = { aviso = null },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                title = { Text(tipoBio?.nombre ?: "Biometría", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AgroColors.Text) },
+                text = { Text(texto, fontSize = 14.sp, color = AgroColors.TextSecondary, lineHeight = 20.sp) },
+                confirmButton = {
+                    Button(
+                        onClick = { aviso = null },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AgroColors.Primary),
+                    ) { Text("Entendido", fontWeight = FontWeight.SemiBold) }
+                },
             )
         }
     }
@@ -141,15 +270,44 @@ fun App() {
 
 @Composable
 private fun PantallaCarga() {
-    Box(
-        modifier = Modifier.fillMaxSize().background(AgroColors.Background),
-        contentAlignment = Alignment.Center,
-    ) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val alfa by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 600),
+        label = "bienvenida",
+    )
+
+    Box(Modifier.fillMaxSize().background(AgroColors.Background)) {
         Image(
             painter = painterResource(Res.drawable.logo_agrosoft),
             contentDescription = "AgroSoft",
-            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(20.dp)),
+            modifier = Modifier.align(Alignment.Center).size(88.dp).clip(RoundedCornerShape(20.dp)),
         )
+        Column(
+            modifier = Modifier.align(Alignment.Center).offset(y = 86.dp).alpha(alfa),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("AgroSoft", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = AgroColors.Title)
+            Spacer(Modifier.height(2.dp))
+            Text("Trabajo de campo SENA", fontSize = 13.sp, color = AgroColors.TextMuted)
+        }
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(bottom = 32.dp)
+                .alpha(alfa * 0.8f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                painter = painterResource(Res.drawable.logo_sena),
+                contentDescription = "SENA",
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("SENA COLOMBIA", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, color = AgroColors.TextMuted)
+        }
     }
 }
 

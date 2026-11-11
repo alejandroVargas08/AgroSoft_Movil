@@ -308,4 +308,3 @@ private fun Aviso(texto: String, fondo: Color, color: Color, icono: ImageVector)
 
 private fun inicialesDe(nombre: String): String =
     nombre.split(" ").filter { it.isNotBlank() }.take(2).map { it.first().uppercaseChar() }.joinToString("").ifEmpty { "?" }
-
