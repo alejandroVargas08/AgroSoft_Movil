@@ -69,9 +69,12 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
+            implementation(libs.androidx.activity.compose)
             implementation("io.ktor:ktor-client-okhttp:3.5.0")
             api("androidx.biometric:biometric:1.1.0")
             implementation("androidx.security:security-crypto:1.1.0-alpha06")
+            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:35.1.0"))
+            implementation("com.google.firebase:firebase-messaging")
         }
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.5.0")

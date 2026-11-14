@@ -5,6 +5,7 @@ import co.edu.sena.agrosoft.features.tareas.data.Resultado
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -52,13 +53,54 @@ data class Vuelo(
 }
 
 @Serializable
+data class Punto(val lat: Double, val lng: Double)
+
+@Serializable
 data class Lote(
     val id: Int,
     val nombre: String,
     val areaHa: JsonElement? = null,
+    val areaM2: JsonElement? = null,
     val descripcion: String? = null,
     val estado: String? = null,
+    val centroide: Punto? = null,
+    val vertices: List<Punto> = emptyList(),
 )
+
+@Serializable
+data class SubLote(
+    val id: Int,
+    val loteId: Int,
+    val nombre: String,
+    val areaHa: JsonElement? = null,
+    val areaM2: JsonElement? = null,
+    val descripcion: String? = null,
+    val estado: String? = null,
+    val centroide: Punto? = null,
+    val vertices: List<Punto> = emptyList(),
+)
+
+@Serializable
+data class ActualizarTerreno(
+    val nombre: String? = null,
+    val descripcion: String? = null,
+    val vertices: List<Punto>? = null,
+    val centroide: Punto? = null,
+    val areaM2: Double? = null,
+)
+
+@Serializable
+private data class CrearSubLote(
+    val loteId: Int,
+    val nombre: String,
+    val vertices: List<Punto>,
+    val centroide: Punto,
+    val areaM2: Double,
+    val descripcion: String? = null,
+)
+
+@Serializable
+private data class MiAcceso(val permisos: List<String> = emptyList())
 
 @Serializable
 data class Dron(
@@ -136,6 +178,24 @@ class TerrenoRepositorio(private val http: HttpClient = ApiCliente.http) {
 
     suspend fun analisis(vueloId: Int): Resultado<List<Analisis>> = llamar { http.get("vuelos/$vueloId/analisis") }
 
+    suspend fun permisos(): List<String> = opcional<MiAcceso> { http.get("mi-acceso") }?.permisos ?: emptyList()
+
+    suspend fun sublotes(loteId: Int): Resultado<List<SubLote>> =
+        llamar(PROHIBIDO_LOTES) { http.get("territorio/sublotes/por-lote/$loteId") }
+
+    suspend fun actualizarLote(id: Int, datos: ActualizarTerreno): Resultado<Lote> =
+        llamar(PROHIBIDO_EDITAR) { http.patch("territorio/lotes/$id") { setBody(datos) } }
+
+    suspend fun actualizarSublote(id: Int, datos: ActualizarTerreno): Resultado<SubLote> =
+        llamar(PROHIBIDO_EDITAR) { http.patch("territorio/sublotes/$id") { setBody(datos) } }
+
+    suspend fun crearSublote(loteId: Int, nombre: String, vertices: List<Punto>, descripcion: String? = null): Resultado<SubLote> =
+        llamar(PROHIBIDO_EDITAR) {
+            http.post("territorio/sublotes") {
+                setBody(CrearSubLote(loteId, nombre, vertices, centroide(vertices), areaPoligonoM2(vertices), descripcion))
+            }
+        }
+
     suspend fun solicitarAnalisis(vueloId: Int): Resultado<Unit> = try {
         val r = http.post("vuelos/$vueloId/analisis") { setBody(SolicitudAnalisis(usarIa = true)) }
         if (r.status.isSuccess()) Resultado.Ok(Unit) else Resultado.Falla(mensajeDe(r))
@@ -145,11 +205,14 @@ class TerrenoRepositorio(private val http: HttpClient = ApiCliente.http) {
         Resultado.Falla("No se pudo conectar con el servidor.")
     }
 
-    private suspend inline fun <reified T> llamar(bloque: suspend () -> HttpResponse): Resultado<T> = try {
+    private suspend inline fun <reified T> llamar(
+        prohibido: String = PROHIBIDO_VUELOS,
+        bloque: suspend () -> HttpResponse,
+    ): Resultado<T> = try {
         val r = bloque()
         when {
             r.status.isSuccess() -> Resultado.Ok(r.body<T>())
-            r.status == HttpStatusCode.Forbidden -> Resultado.Falla("No tienes permiso para ver los vuelos de dron.")
+            r.status == HttpStatusCode.Forbidden -> Resultado.Falla(prohibido)
             else -> Resultado.Falla(mensajeDe(r))
         }
     } catch (e: CancellationException) {
@@ -174,5 +237,11 @@ class TerrenoRepositorio(private val http: HttpClient = ApiCliente.http) {
             null -> null
             else -> m.jsonPrimitive.contentOrNull
         } ?: "No se pudo completar la acción."
+    }
+
+    private companion object {
+        const val PROHIBIDO_VUELOS = "No tienes permiso para ver los vuelos de dron."
+        const val PROHIBIDO_LOTES = "No tienes permiso para ver los lotes."
+        const val PROHIBIDO_EDITAR = "No tienes permiso para editar lotes."
     }
 }

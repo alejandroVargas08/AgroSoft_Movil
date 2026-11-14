@@ -1,10 +1,13 @@
 package co.edu.sena.agrosoft.features.terreno.presentation
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,6 +31,7 @@ import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.core.ui.TituloSeccion
 import co.edu.sena.agrosoft.features.terreno.data.Lote
+import co.edu.sena.agrosoft.features.terreno.data.SubLote
 import co.edu.sena.agrosoft.features.terreno.data.Vuelo
 import co.edu.sena.agrosoft.features.terreno.data.numero
 import com.composables.icons.lucide.*
@@ -242,30 +247,184 @@ private fun ItemVuelo(v: Vuelo, e: TerrenoEstado, onClick: () -> Unit) {
     }
 }
 
+private val COLORES_LOTES = listOf(
+    Color(0xFF22C55E),
+    Color(0xFF38BDF8),
+    Color(0xFFF472B6),
+    Color(0xFFA78BFA),
+    Color(0xFFFB923C),
+    Color(0xFF2DD4BF),
+)
+
+internal fun colorLote(indice: Int): Color = COLORES_LOTES[indice % COLORES_LOTES.size]
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Lotes(e: TerrenoEstado, vm: TerrenoViewModel) {
     if (e.lotes.isEmpty()) {
         Aviso(Lucide.Map, "No hay lotes para mostrar o no tienes permiso para verlos.", null, null)
         return
     }
+    val estadoMapa = rememberEstadoMapa()
+    val alMapa = remember { BringIntoViewRequester() }
+    val lote = e.loteElegido
+    val sublotes = e.sublotesElegidos
+
+    LaunchedEffect(e.loteMapa) { if (e.loteMapa != null) alMapa.bringIntoView() }
+
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        e.lotes.forEachIndexed { i, l ->
+            val activo = l.id == e.loteMapa
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .background(if (activo) AgroColors.Primary else Color.White)
+                    .border(1.dp, if (activo) AgroColors.Primary else AgroColors.Border, CircleShape)
+                    .clickable { vm.seleccionarLoteMapa(l.id) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (activo) Color.White else colorLote(i)))
+                Spacer(Modifier.width(6.dp))
+                Text(l.nombre, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (activo) Color.White else AgroColors.TextMuted)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+
+    val figuras = buildList {
+        e.lotes.forEachIndexed { i, l ->
+            if (l.id != lote?.id) add(FiguraMapa(l.id, l.vertices, colorLote(i), l.nombre, relleno = 0.08f))
+        }
+        if (lote != null) {
+            add(FiguraMapa(lote.id, lote.vertices, Color.White, if (sublotes.isEmpty()) lote.nombre else null, relleno = if (sublotes.isEmpty()) 0.15f else 0f))
+        }
+        sublotes.forEachIndexed { i, s ->
+            add(FiguraMapa(-s.id, s.vertices, colorLote(i), s.nombre, resaltada = s.id == e.subloteMapa, relleno = 0.25f))
+        }
+    }
+
+    Tarjeta(modifier = Modifier.fillMaxWidth().bringIntoViewRequester(alMapa)) {
+        Box {
+            MapaSatelital(
+                figuras = figuras,
+                estado = estadoMapa,
+                encuadre = lote?.vertices,
+                modifier = Modifier.fillMaxWidth().height(300.dp),
+                onToqueFigura = { id ->
+                    when {
+                        id == null -> vm.seleccionarSublote(null)
+                        id < 0 -> vm.seleccionarSublote(-id)
+                        id != e.loteMapa -> vm.seleccionarLoteMapa(id)
+                    }
+                },
+            )
+            if (e.cargandoSublotes) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(20.dp),
+                )
+            }
+        }
+        if (lote != null) ResumenLote(lote, sublotes, e, vm)
+    }
+    Spacer(Modifier.height(4.dp))
+
+    TituloSeccion("Todos los lotes")
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        e.lotes.forEach { lote -> ItemLote(lote, e) { vm.verLote(lote.id) } }
+        e.lotes.forEachIndexed { i, l ->
+            ItemLote(l, e, colorLote(i), l.id == e.loteMapa) { vm.seleccionarLoteMapa(l.id) }
+        }
     }
 }
 
 @Composable
-private fun ItemLote(lote: Lote, e: TerrenoEstado, onClick: () -> Unit) {
+private fun ResumenLote(lote: Lote, sublotes: List<SubLote>, e: TerrenoEstado, vm: TerrenoViewModel) {
+    val vuelos = e.vuelos.count { it.loteId == lote.id }
+    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(lote.nombre, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AgroColors.Title)
+                Text(
+                    listOf(
+                        hectareas(lote.areaHa.numero()),
+                        if (sublotes.size == 1) "1 sublote" else "${sublotes.size} sublotes",
+                        if (vuelos == 1) "1 vuelo" else "$vuelos vuelos",
+                    ).joinToString(" · "),
+                    fontSize = 11.sp,
+                    color = AgroColors.TextMuted,
+                )
+            }
+            Text(
+                "Ver vuelos",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AgroColors.Primary)
+                    .clickable { vm.verLote(lote.id) }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+        when {
+            e.errorSublotes != null -> Text(e.errorSublotes, fontSize = 12.sp, color = AgroColors.Error)
+            e.cargandoSublotes && sublotes.isEmpty() -> Text("Cargando sublotes...", fontSize = 12.sp, color = AgroColors.TextMuted)
+            sublotes.isEmpty() -> Text("Este lote no tiene sublotes.", fontSize = 12.sp, color = AgroColors.TextMuted)
+            else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                sublotes.forEachIndexed { i, s ->
+                    val activo = s.id == e.subloteMapa
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (activo) Color(0xFFFEF3C7) else AgroColors.SurfaceSoft)
+                            .clickable { vm.seleccionarSublote(s.id) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(colorLote(i)))
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            s.nombre,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AgroColors.Title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(hectareas(s.areaHa.numero()), fontSize = 11.sp, color = AgroColors.TextMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ItemLote(lote: Lote, e: TerrenoEstado, color: Color, resaltado: Boolean, onClick: () -> Unit) {
     val vuelos = e.vuelos.filter { it.loteId == lote.id }
     val salud = vuelos.firstOrNull { it.analizado }?.saludable
     val etiqueta = saludDe(salud)
-    Tarjeta(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
+    Tarjeta(
+        modifier = Modifier.fillMaxWidth(),
+        borde = if (resaltado) Color(0xFFFBBF24) else AgroColors.Border,
+        onClick = onClick,
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(AgroColors.PrimarySoft),
+                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Lucide.Map, contentDescription = null, tint = AgroColors.Primary, modifier = Modifier.size(20.dp))
+                    Icon(Lucide.Map, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {

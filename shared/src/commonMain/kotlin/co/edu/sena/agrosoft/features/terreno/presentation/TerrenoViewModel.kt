@@ -10,6 +10,7 @@ import co.edu.sena.agrosoft.features.terreno.data.Analisis
 import co.edu.sena.agrosoft.features.terreno.data.Captura
 import co.edu.sena.agrosoft.features.terreno.data.Dron
 import co.edu.sena.agrosoft.features.terreno.data.Lote
+import co.edu.sena.agrosoft.features.terreno.data.SubLote
 import co.edu.sena.agrosoft.features.terreno.data.TerrenoRepositorio
 import co.edu.sena.agrosoft.features.terreno.data.Vuelo
 import kotlinx.coroutines.async
@@ -42,6 +43,11 @@ data class TerrenoEstado(
     val pestana: PestanaTerreno = PestanaTerreno.VUELOS,
     val filtro: FiltroVuelos = FiltroVuelos.TODOS,
     val loteFiltro: Int? = null,
+    val loteMapa: Int? = null,
+    val subloteMapa: Int? = null,
+    val sublotes: Map<Int, List<SubLote>> = emptyMap(),
+    val cargandoSublotes: Boolean = false,
+    val errorSublotes: String? = null,
     val portada: Pair<Int, Int>? = null,
     val seleccionadoId: Int? = null,
     val cargandoDetalle: Boolean = false,
@@ -64,6 +70,8 @@ data class TerrenoEstado(
                     FiltroVuelos.SIN_ANALISIS -> it.ultimoAnalisis == null
                 }
             }
+    val loteElegido: Lote? get() = lotes.firstOrNull { it.id == loteMapa }
+    val sublotesElegidos: List<SubLote> get() = loteMapa?.let { sublotes[it] }.orEmpty()
     val destacado: Vuelo? get() = vuelos.firstOrNull { it.analizado }
     val seleccionado: Vuelo? get() = vuelos.firstOrNull { it.id == seleccionadoId }
     val captura: Captura? get() = capturas.getOrNull(capturaActual.coerceIn(0, (capturas.size - 1).coerceAtLeast(0)))
@@ -99,6 +107,11 @@ class TerrenoViewModel(
                 is Resultado.Falla -> estado.copy(cargando = false, error = r.mensaje)
             }
         }
+        if (estado.loteMapa == null || estado.lotes.none { it.id == estado.loteMapa }) {
+            estado.lotes.firstOrNull { it.vertices.size >= 3 }?.let { seleccionarLoteMapa(it.id) }
+        } else {
+            estado.loteMapa?.let { cargarSublotes(it) }
+        }
         cargarPortada()
     }
 
@@ -111,6 +124,27 @@ class TerrenoViewModel(
     }
 
     fun cambiarPestana(p: PestanaTerreno) { estado = estado.copy(pestana = p) }
+
+    fun seleccionarLoteMapa(id: Int) {
+        if (id != estado.loteMapa) estado = estado.copy(loteMapa = id, subloteMapa = null, errorSublotes = null)
+        cargarSublotes(id)
+    }
+
+    fun seleccionarSublote(id: Int?) {
+        estado = estado.copy(subloteMapa = if (id == estado.subloteMapa) null else id)
+    }
+
+    private fun cargarSublotes(loteId: Int) {
+        if (estado.sublotes.containsKey(loteId)) return
+        estado = estado.copy(cargandoSublotes = true, errorSublotes = null)
+        viewModelScope.launch {
+            estado = when (val r = repositorio.sublotes(loteId)) {
+                is Resultado.Ok -> estado.copy(cargandoSublotes = false, sublotes = estado.sublotes + (loteId to r.dato))
+                is Resultado.Falla -> estado.copy(cargandoSublotes = false, errorSublotes = r.mensaje)
+            }
+        }
+    }
+
     fun cambiarFiltro(f: FiltroVuelos) { estado = estado.copy(filtro = f) }
 
     fun verLote(id: Int?) {

@@ -33,6 +33,8 @@ import co.edu.sena.agrosoft.core.navigation.Pantalla
 import co.edu.sena.agrosoft.core.navigation.Rol
 import co.edu.sena.agrosoft.core.navigation.subtituloDe
 import co.edu.sena.agrosoft.core.navigation.tituloDe
+import co.edu.sena.agrosoft.core.push.PermisoNotificaciones
+import co.edu.sena.agrosoft.core.push.RegistroPush
 import co.edu.sena.agrosoft.core.seguridad.AccesoBiometrico
 import co.edu.sena.agrosoft.core.seguridad.Credenciales
 import co.edu.sena.agrosoft.core.seguridad.autenticarBiometria
@@ -82,6 +84,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.compose.resources.painterResource
 
 private enum class Acceso { LOGIN, RECUPERAR, REGISTRO }
@@ -135,6 +138,14 @@ fun App() {
             }
         }
 
+        val cerrarSesion: () -> Unit = {
+            alcance.launch {
+                withTimeoutOrNull(3_000) { RegistroPush.darDeBaja() }
+                acceso = Acceso.LOGIN
+                login.cerrarSesion()
+            }
+        }
+
         LaunchedEffect(estado.error) {
             if (porBiometria && estado.error != null) {
                 porBiometria = false
@@ -161,10 +172,7 @@ fun App() {
             sesion != null -> AppPrincipal(
                 sesion = sesion,
                 onSesionActualizada = login::actualizarSesion,
-                onCerrarSesion = {
-                    acceso = Acceso.LOGIN
-                    login.cerrarSesion()
-                },
+                onCerrarSesion = cerrarSesion,
             )
             correoCodigo != null -> CodigoDosPasosScreen(
                 correo = correoCodigo,
@@ -332,6 +340,17 @@ private fun AppPrincipal(
     val creandoTarea = pantalla == Pantalla.ACTIVIDADES && actividades.estado.creando
     val chatAbierto = pantalla == Pantalla.AGROBOT && agrobot.estado.abierta
 
+    PermisoNotificaciones()
+
+    LaunchedEffect(sesion.id) {
+        RegistroPush.registrar()
+    }
+    LaunchedEffect(sesion.id) {
+        RegistroPush.llegadas.collect {
+            avisos.refrescar()
+            if (esAdmin) admin.cargar()
+        }
+    }
     LaunchedEffect(pantalla) {
         avisos.refrescar()
         if (esAdmin) admin.cargar()
@@ -626,3 +645,4 @@ private fun SoloWeb() {
         }
     }
 }
+
