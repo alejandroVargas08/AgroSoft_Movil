@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,7 +47,10 @@ import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.core.theme.AgroSoftTheme
 import co.edu.sena.agrosoft.core.ui.BarraInferiorCristal
 import co.edu.sena.agrosoft.core.ui.BarraSuperior
+import co.edu.sena.agrosoft.core.ui.ContenedorVolver
 import co.edu.sena.agrosoft.core.ui.Tarjeta
+import co.edu.sena.agrosoft.core.ui.rememberGestoVolver
+import co.edu.sena.agrosoft.core.ui.sombraIzquierda
 import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesScreen
 import co.edu.sena.agrosoft.features.actividades.presentation.ActividadesViewModel
 import co.edu.sena.agrosoft.features.actividades.presentation.DetalleActividadScreen
@@ -167,6 +175,27 @@ fun App() {
             acceso = Acceso.LOGIN
         }
 
+        @Composable
+        fun VistaLogin() {
+            LoginScreen(
+                correo = estado.correo,
+                password = estado.password,
+                mensajeError = estado.error,
+                avisoCuenta = estado.aviso,
+                cargando = estado.cargando,
+                onCorreoChange = login::cambiarCorreo,
+                onPasswordChange = login::cambiarPassword,
+                onIniciarSesion = {
+                    pendientes = Credenciales(estado.correo.trim(), estado.password)
+                    porBiometria = false
+                    login.iniciarSesion()
+                },
+                onBiometria = ingresarConBiometria,
+                onOlvideContrasena = { acceso = Acceso.RECUPERAR },
+                onRegistro = { acceso = Acceso.REGISTRO },
+            )
+        }
+
         when {
             estado.verificando || !bienvenidaLista -> PantallaCarga()
             sesion != null -> AppPrincipal(
@@ -174,25 +203,32 @@ fun App() {
                 onSesionActualizada = login::actualizarSesion,
                 onCerrarSesion = cerrarSesion,
             )
-            correoCodigo != null -> CodigoDosPasosScreen(
-                correo = correoCodigo,
-                codigo = estado.codigo,
-                mensaje = estado.mensajeCodigo,
-                error = estado.errorCodigo,
-                cargando = estado.cargando,
-                onCodigoChange = login::cambiarCodigo,
-                onVerificar = login::verificarCodigo,
-                onReenviar = login::reenviarCodigo,
-                onVolver = login::cancelarCodigo,
-            )
+            correoCodigo != null -> ContenedorVolver(
+                onVolver = if (estado.cargando) null else ({ login.cancelarCodigo() }),
+                fondo = { VistaLogin() },
+            ) {
+                CodigoDosPasosScreen(
+                    correo = correoCodigo,
+                    codigo = estado.codigo,
+                    mensaje = estado.mensajeCodigo,
+                    error = estado.errorCodigo,
+                    cargando = estado.cargando,
+                    onCodigoChange = login::cambiarCodigo,
+                    onVerificar = login::verificarCodigo,
+                    onReenviar = login::reenviarCodigo,
+                    onVolver = login::cancelarCodigo,
+                )
+            }
             acceso == Acceso.RECUPERAR -> RecuperarScreen(
                 correoInicial = estado.correo,
                 onVolver = { acceso = Acceso.LOGIN },
                 onTerminar = volverAlLogin,
+                fondo = { VistaLogin() },
             )
             acceso == Acceso.REGISTRO -> RegistroScreen(
                 onVolver = { acceso = Acceso.LOGIN },
                 onTerminar = volverAlLogin,
+                fondo = { VistaLogin() },
             )
             else -> {
                 LaunchedEffect(Unit) {
@@ -201,23 +237,7 @@ fun App() {
                         ingresarConBiometria()
                     }
                 }
-                LoginScreen(
-                    correo = estado.correo,
-                    password = estado.password,
-                    mensajeError = estado.error,
-                    avisoCuenta = estado.aviso,
-                    cargando = estado.cargando,
-                    onCorreoChange = login::cambiarCorreo,
-                    onPasswordChange = login::cambiarPassword,
-                    onIniciarSesion = {
-                        pendientes = Credenciales(estado.correo.trim(), estado.password)
-                        porBiometria = false
-                        login.iniciarSesion()
-                    },
-                    onBiometria = ingresarConBiometria,
-                    onOlvideContrasena = { acceso = Acceso.RECUPERAR },
-                    onRegistro = { acceso = Acceso.REGISTRO },
-                )
+                VistaLogin()
             }
         }
 
@@ -339,6 +359,8 @@ private fun AppPrincipal(
     val agrobot = viewModel(key = "agrobot-${sesion.id}") { AgroBotViewModel(sesion.id) }
     val creandoTarea = pantalla == Pantalla.ACTIVIDADES && actividades.estado.creando
     val chatAbierto = pantalla == Pantalla.AGROBOT && agrobot.estado.abierta
+    val focusManager = LocalFocusManager.current
+    val tecladoAbierto = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     PermisoNotificaciones()
 
@@ -377,37 +399,46 @@ private fun AppPrincipal(
         else -> subtituloDe(pantalla, sesion.rol)
     }
 
+    val accionVolver: (() -> Unit)? = when {
+        creandoTarea -> ({ actividades.cancelarCreacion() })
+        chatAbierto -> ({ agrobot.cerrarChat() })
+        pantalla.principal -> null
+        else -> ({ navegador.volver() })
+    }
+
     val abrirSensor: (Int) -> Unit = { id ->
         sensores.cargar()
         sensores.abrir(id)
         navegador.ir(Pantalla.DETALLE_SENSOR)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AgroColors.Background),
-    ) {
+    val destinoVolver: Pantalla? = when {
+        creandoTarea -> Pantalla.ACTIVIDADES
+        chatAbierto -> Pantalla.AGROBOT
+        !pantalla.principal -> navegador.anterior
+        else -> null
+    }
+    val gesto = rememberGestoVolver(accionVolver)
+    val progreso = gesto.progreso
+
+    @Composable
+    fun Capa(p: Pantalla, esActual: Boolean, modifier: Modifier) {
+        val base = !esActual && p == pantalla
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
                 .background(AgroColors.Background)
-                .hazeSource(hazeState)
+                .then(if (esActual) Modifier.hazeSource(hazeState) else Modifier)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         ) {
             Spacer(Modifier.height(8.dp))
             BarraSuperior(
-                titulo = titulo,
-                subtitulo = subtitulo,
-                esInicio = pantalla == Pantalla.INICIO,
+                titulo = if (esActual) titulo else tituloDe(p, sesion.rol, sesion.nombre),
+                subtitulo = if (esActual) subtitulo else subtituloDe(p, sesion.rol),
+                esInicio = p == Pantalla.INICIO,
                 iniciales = sesion.iniciales,
                 notificaciones = avisos.estado.noLeidas,
-                onVolver = when {
-                    creandoTarea -> ({ actividades.cancelarCreacion() })
-                    chatAbierto -> ({ agrobot.cerrarChat() })
-                    pantalla.principal -> null
-                    else -> ({ navegador.volver() })
-                },
+                onVolver = if (esActual) accionVolver else if (p.principal && (base || p != Pantalla.AGROBOT || !agrobot.estado.abierta)) null else ({}),
                 onAcciones = {
                     when (sesion.rol) {
                         Rol.INSTRUCTOR -> {
@@ -422,24 +453,27 @@ private fun AppPrincipal(
                 onAvatar = { navegador.ir(Pantalla.PERFIL) },
             )
 
-            if (pantalla == Pantalla.AGROBOT) {
+            if (p == Pantalla.AGROBOT) {
                 AgroBotScreen(
                     vm = agrobot,
                     nombre = sesion.nombre,
                     rol = sesion.rol,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
+                    mostrarChat = if (base) false else agrobot.estado.abierta,
+                    cargarAlEntrar = esActual,
                 )
             } else {
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .imePadding()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp)
-                        .padding(bottom = if (pantalla.principal) 110.dp else 24.dp),
+                        .padding(bottom = if (p.principal && !tecladoAbierto) 110.dp else 24.dp),
                 ) {
                     Contenido(
-                        pantalla = pantalla,
+                        pantalla = p,
                         sesion = sesion,
                         navegador = navegador,
                         avisos = avisos,
@@ -450,15 +484,52 @@ private fun AppPrincipal(
                         abrirSensor = abrirSensor,
                         onSesionActualizada = onSesionActualizada,
                         onCerrarSesion = onCerrarSesion,
+                        mostrarCreacion = !base,
                     )
                 }
             }
         }
+    }
 
-        if (pantalla.principal && !chatAbierto) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AgroColors.Background)
+            .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
+    ) {
+        if (progreso > 0f && destinoVolver != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationX = -size.width * 0.3f * (1f - progreso) },
+            ) {
+                Capa(destinoVolver, esActual = false, modifier = Modifier)
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.10f * (1f - progreso))),
+                )
+            }
+        }
+
+        Capa(
+            p = pantalla,
+            esActual = true,
+            modifier = Modifier
+                .graphicsLayer { translationX = size.width * progreso }
+                .sombraIzquierda(progreso),
+        )
+
+        val barraFija = pantalla.principal && !chatAbierto
+        val barraPantalla = when {
+            barraFija -> pantalla
+            destinoVolver?.principal == true && progreso > 0f -> destinoVolver
+            else -> null
+        }
+        if (barraPantalla != null && !tecladoAbierto) {
             BarraInferiorCristal(
                 rol = sesion.rol,
-                actual = pantalla,
+                actual = barraPantalla,
                 insignias = buildMap {
                     put(Pantalla.TRABAJO, avisos.estado.pendientesTrabajo)
                     if (esAdmin) put(Pantalla.ALERTAS, admin.estado.totalAlertas)
@@ -468,7 +539,8 @@ private fun AppPrincipal(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 12.dp)
+                    .graphicsLayer { alpha = if (barraFija) 1f else progreso },
             )
         }
     }
@@ -487,6 +559,7 @@ private fun Contenido(
     abrirSensor: (Int) -> Unit,
     onSesionActualizada: (Sesion) -> Unit,
     onCerrarSesion: () -> Unit,
+    mostrarCreacion: Boolean = true,
 ) {
     val esAdmin = sesion.rol == Rol.ADMINISTRADOR
     when (pantalla) {
@@ -531,7 +604,7 @@ private fun Contenido(
             onAbrirSensor = abrirSensor,
             onAbrirInsumo = { navegador.ir(Pantalla.SOLO_WEB) },
         )
-        Pantalla.ACTIVIDADES -> if (actividades.estado.creando) {
+        Pantalla.ACTIVIDADES -> if (mostrarCreacion && actividades.estado.creando) {
             NuevaActividadScreen(vm = actividades)
         } else {
             ActividadesScreen(
@@ -645,4 +718,3 @@ private fun SoloWeb() {
         }
     }
 }
-

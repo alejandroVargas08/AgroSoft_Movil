@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.edu.sena.agrosoft.core.theme.AgroColors
+import co.edu.sena.agrosoft.core.ui.ContenedorVolver
 import co.edu.sena.agrosoft.features.auth.data.FichaPublica
 import com.composables.icons.lucide.*
 
@@ -34,13 +35,36 @@ import com.composables.icons.lucide.*
 fun RegistroScreen(
     onVolver: () -> Unit,
     onTerminar: (String) -> Unit,
+    fondo: (@Composable () -> Unit)? = null,
 ) {
     val vm = viewModel { RegistroViewModel() }
     val e = vm.estado
 
     LaunchedEffect(Unit) { vm.reiniciar() }
 
-    val (titulo, subtitulo) = when (e.paso) {
+    val pasoInterno = e.paso == 2 || e.paso == 3
+    val accion: () -> Unit = { if (e.paso == 4 || !vm.atras()) onVolver() }
+    ContenedorVolver(
+        onVolver = if (e.enviando) null else accion,
+        fondo = {
+            if (pasoInterno) PasoRegistroVista(e.paso - 1, e, vm, {}, onTerminar, avisos = false)
+            else fondo?.invoke()
+        },
+    ) {
+        PasoRegistroVista(e.paso, e, vm, accion, onTerminar, avisos = true)
+    }
+}
+
+@Composable
+private fun PasoRegistroVista(
+    paso: Int,
+    e: RegistroEstado,
+    vm: RegistroViewModel,
+    onVolver: () -> Unit,
+    onTerminar: (String) -> Unit,
+    avisos: Boolean,
+) {
+    val (titulo, subtitulo) = when (paso) {
         1 -> "Solicitar acceso" to "Cuéntanos cómo vas a usar AgroSoft."
         2 -> "Tus datos" to "Con estos datos te identificaremos en AgroSoft."
         3 -> when (e.tipo) {
@@ -55,15 +79,15 @@ fun RegistroScreen(
     MarcoAcceso(
         titulo = titulo,
         subtitulo = subtitulo,
-        onVolver = { if (e.paso == 4 || !vm.atras()) onVolver() },
+        onVolver = onVolver,
     ) {
-        if (e.paso in 1..3) {
-            Progreso(e.paso)
+        if (paso in 1..3) {
+            Progreso(paso)
             Spacer(Modifier.height(20.dp))
         }
-        e.error?.let { AvisoAcceso(it, error = true) }
+        if (avisos) e.error?.let { AvisoAcceso(it, error = true) }
 
-        when (e.paso) {
+        when (paso) {
             1 -> {
                 TipoRegistro.entries.forEach { t ->
                     OpcionTipo(

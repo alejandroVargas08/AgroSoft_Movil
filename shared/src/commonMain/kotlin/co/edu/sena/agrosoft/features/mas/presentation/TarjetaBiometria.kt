@@ -9,12 +9,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -23,7 +27,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -37,6 +40,8 @@ import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.features.auth.data.Sesion
 import co.edu.sena.agrosoft.features.perfil.data.PerfilRepositorio
 import co.edu.sena.agrosoft.features.tareas.data.Resultado
+import com.composables.icons.lucide.Eye
+import com.composables.icons.lucide.EyeOff
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Smartphone
 import kotlinx.coroutines.launch
@@ -64,17 +69,31 @@ class BiometriaViewModel(
     }
 
     fun cambiar(activar: Boolean) {
-        if (estado.tipo == null || estado.procesando) return
-        if (activar) {
-            estado = estado.copy(pidiendoClave = true, clave = "", error = null)
-        } else {
+        val tipo = estado.tipo ?: return
+        if (estado.procesando) return
+        if (!activar) {
             AccesoBiometrico.desactivar()
             AccesoBiometrico.rechazado = true
             estado = estado.copy(activa = false)
+            return
+        }
+        if (AccesoBiometrico.recordadas(correoSesion) == null) {
+            estado = estado.copy(pidiendoClave = true, clave = "", error = null)
+            return
+        }
+        estado = estado.copy(procesando = true, error = null)
+        viewModelScope.launch {
+            if (autenticarBiometria("Confirma para activar ${tipo.nombre}")) {
+                AccesoBiometrico.activar()
+                estado = estado.copy(procesando = false, activa = true)
+            } else {
+                estado = estado.copy(procesando = false)
+            }
         }
     }
 
     fun cambiarClave(v: String) {
+        if (v == estado.clave) return
         estado = estado.copy(clave = v, error = null)
     }
 
@@ -145,7 +164,11 @@ fun TarjetaBiometria(sesion: Sesion, modifier: Modifier = Modifier) {
             )
         }
         Spacer(Modifier.width(8.dp))
-        Interruptor(activo = e.activa, habilitado = disponible)
+        if (e.procesando && !e.pidiendoClave) {
+            CircularProgressIndicator(color = AgroColors.Primary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+        } else {
+            Interruptor(activo = e.activa, habilitado = disponible)
+        }
     }
 
     if (e.pidiendoClave) {
@@ -179,6 +202,13 @@ private fun Interruptor(activo: Boolean, habilitado: Boolean) {
 @Composable
 private fun DialogoClave(e: BiometriaEstado, vm: BiometriaViewModel) {
     val nombre = e.tipo?.nombre ?: "biometría"
+    val campo = rememberTextFieldState()
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(campo) {
+        snapshotFlow { campo.text.toString() }.collect { vm.cambiarClave(it) }
+    }
+
     AlertDialog(
         onDismissRequest = vm::cancelar,
         containerColor = Color.White,
@@ -187,20 +217,29 @@ private fun DialogoClave(e: BiometriaEstado, vm: BiometriaViewModel) {
         text = {
             Column {
                 Text(
-                    "Escribe tu contraseña. Se guarda cifrada en este dispositivo y solo se usa cuando $nombre te reconoce.",
+                    "Escribe tu contraseña de AgroSoft solo esta vez. Después bastará con $nombre o el código de tu celular.",
                     fontSize = 13.sp,
                     color = AgroColors.TextSecondary,
                     lineHeight = 18.sp,
                 )
                 Spacer(Modifier.height(14.dp))
-                OutlinedTextField(
-                    value = e.clave,
-                    onValueChange = vm::cambiarClave,
+                OutlinedSecureTextField(
+                    state = campo,
                     label = { Text("Contraseña", fontSize = 12.sp) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    textObfuscationMode = if (visible) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     isError = e.error != null,
+                    enabled = !e.procesando,
+                    trailingIcon = {
+                        IconButton(onClick = { visible = !visible }) {
+                            Icon(
+                                if (visible) Lucide.EyeOff else Lucide.Eye,
+                                contentDescription = if (visible) "Ocultar contraseña" else "Ver contraseña",
+                                tint = AgroColors.TextSecondary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AgroColors.Primary,

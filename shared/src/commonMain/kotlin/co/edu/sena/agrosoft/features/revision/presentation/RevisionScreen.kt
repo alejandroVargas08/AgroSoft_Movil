@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import co.edu.sena.agrosoft.core.push.RegistroPush
 import co.edu.sena.agrosoft.core.theme.AgroColors
 import co.edu.sena.agrosoft.core.ui.Tarjeta
 import co.edu.sena.agrosoft.core.util.Fechas
@@ -35,12 +36,21 @@ import co.edu.sena.agrosoft.core.util.decimal
 import co.edu.sena.agrosoft.features.revision.data.Entrega
 import coil3.compose.AsyncImage
 import com.composables.icons.lucide.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun RevisionScreen(sesionId: Int) {
     val vm = viewModel(key = "revision-$sesionId") { RevisionViewModel() }
     val e = vm.estado
-    LaunchedEffect(Unit) { vm.cargar() }
+    LaunchedEffect(Unit) {
+        vm.cargar()
+        launch { RegistroPush.llegadas.collect { vm.refrescar() } }
+        while (true) {
+            delay(15_000)
+            vm.refrescar()
+        }
+    }
 
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         if (!e.cargando || e.entregas.isNotEmpty()) {

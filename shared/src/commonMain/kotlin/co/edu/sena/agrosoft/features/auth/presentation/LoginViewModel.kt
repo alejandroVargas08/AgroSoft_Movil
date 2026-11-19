@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import co.edu.sena.agrosoft.core.seguridad.AccesoBiometrico
+import co.edu.sena.agrosoft.core.seguridad.Credenciales
 import co.edu.sena.agrosoft.core.session.AlmacenSesion
 import co.edu.sena.agrosoft.features.auth.data.AuthRepositorio
 import co.edu.sena.agrosoft.features.auth.data.ResultadoLogin
@@ -95,6 +97,7 @@ class LoginViewModel(
 
     fun cerrarSesion() {
         repositorio.cerrarSesion()
+        AccesoBiometrico.olvidarSiInactivo()
         estado = LoginEstado(verificando = false, correo = estado.correo)
     }
 
@@ -106,6 +109,9 @@ class LoginViewModel(
     }
 
     private fun aplicar(resultado: ResultadoLogin) {
+        if (resultado is ResultadoLogin.Exito && estado.password.isNotEmpty()) {
+            AccesoBiometrico.recordar(Credenciales(estado.correo.trim(), estado.password))
+        }
         estado = when (resultado) {
             is ResultadoLogin.Exito -> estado.copy(
                 cargando = false,

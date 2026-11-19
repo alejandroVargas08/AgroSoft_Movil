@@ -60,6 +60,13 @@ class Navegador{
         private set
     private val historial = mutableStateListOf<Pantalla>()
 
+    val anterior: Pantalla?
+        get() = when {
+            historial.isNotEmpty() -> historial.last()
+            actual != Pantalla.INICIO -> Pantalla.INICIO
+            else -> null
+        }
+
     fun ir(destino: Pantalla){
         if(destino.principal){
             cambiarPestana(destino)

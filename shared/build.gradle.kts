@@ -99,6 +99,7 @@ kotlin {
             implementation("io.coil-kt.coil3:coil-network-ktor3:3.3.0")
             implementation("dev.chrisbanes.haze:haze:2.1.0")
             implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
+            implementation("org.jetbrains.androidx.navigationevent:navigationevent-compose:1.1.0")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

@@ -1,6 +1,7 @@
 package co.edu.sena.agrosoft.core.seguridad
 
 import android.content.SharedPreferences
+import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -23,6 +24,13 @@ object PuenteAndroid {
 }
 
 private const val AUTENTICADORES = BiometricManager.Authenticators.BIOMETRIC_STRONG
+
+private val AUTENTICADORES_CON_CODIGO: Int
+    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    } else {
+        BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    }
 
 private var preferenciasCache: SharedPreferences? = null
 
@@ -65,8 +73,7 @@ actual suspend fun autenticarBiometria(motivo: String): Boolean {
             val info = BiometricPrompt.PromptInfo.Builder()
                 .setTitle("AgroSoft")
                 .setSubtitle(motivo)
-                .setNegativeButtonText("Cancelar")
-                .setAllowedAuthenticators(AUTENTICADORES)
+                .setAllowedAuthenticators(AUTENTICADORES_CON_CODIGO)
                 .build()
             aviso.authenticate(info)
         }

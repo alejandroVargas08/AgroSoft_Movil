@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.edu.sena.agrosoft.core.theme.AgroColors
+import co.edu.sena.agrosoft.core.ui.ContenedorVolver
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.Lucide
 
@@ -25,13 +26,36 @@ fun RecuperarScreen(
     correoInicial: String,
     onVolver: () -> Unit,
     onTerminar: (String) -> Unit,
+    fondo: (@Composable () -> Unit)? = null,
 ) {
     val vm = viewModel { RecuperarViewModel() }
     val e = vm.estado
 
     LaunchedEffect(Unit) { vm.reiniciar(correoInicial) }
 
-    val (titulo, subtitulo) = when (e.paso) {
+    val pasoInterno = e.paso == PasoRecuperar.CODIGO || e.paso == PasoRecuperar.NUEVA
+    val accion: () -> Unit = { if (pasoInterno) vm.volverAlCorreo() else onVolver() }
+    ContenedorVolver(
+        onVolver = if (e.cargando) null else accion,
+        fondo = {
+            if (pasoInterno) PasoRecuperarVista(PasoRecuperar.CORREO, e, vm, {}, onTerminar, avisos = false)
+            else fondo?.invoke()
+        },
+    ) {
+        PasoRecuperarVista(e.paso, e, vm, accion, onTerminar, avisos = true)
+    }
+}
+
+@Composable
+private fun PasoRecuperarVista(
+    paso: PasoRecuperar,
+    e: RecuperarEstado,
+    vm: RecuperarViewModel,
+    onVolver: () -> Unit,
+    onTerminar: (String) -> Unit,
+    avisos: Boolean,
+) {
+    val (titulo, subtitulo) = when (paso) {
         PasoRecuperar.CORREO -> "Recupera tu contraseña" to "Escribe el correo con el que ingresas y te enviaremos un código."
         PasoRecuperar.CODIGO -> "Revisa tu correo" to "Escribe el código de 6 dígitos que te enviamos a ${e.correo}."
         PasoRecuperar.NUEVA -> "Crea tu nueva contraseña" to "Usa al menos 8 caracteres. Evita contraseñas que uses en otros sitios."
@@ -41,17 +65,14 @@ fun RecuperarScreen(
     MarcoAcceso(
         titulo = titulo,
         subtitulo = subtitulo,
-        onVolver = {
-            when (e.paso) {
-                PasoRecuperar.CODIGO, PasoRecuperar.NUEVA -> vm.volverAlCorreo()
-                else -> onVolver()
-            }
-        },
+        onVolver = onVolver,
     ) {
-        e.mensaje?.let { AvisoAcceso(it, error = false) }
-        e.error?.let { AvisoAcceso(it, error = true) }
+        if (avisos) {
+            e.mensaje?.let { AvisoAcceso(it, error = false) }
+            e.error?.let { AvisoAcceso(it, error = true) }
+        }
 
-        when (e.paso) {
+        when (paso) {
             PasoRecuperar.CORREO -> {
                 CampoAcceso("Correo electrónico", e.correo, vm::cambiarCorreo, "tucorreo@ejemplo.com", KeyboardType.Email)
                 BotonAcceso("Enviar código", e.cargando, vm::enviarCodigo)

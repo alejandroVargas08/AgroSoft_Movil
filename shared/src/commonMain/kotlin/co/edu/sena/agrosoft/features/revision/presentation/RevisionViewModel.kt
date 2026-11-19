@@ -48,6 +48,21 @@ class RevisionViewModel(
         }
     }
 
+    fun refrescar() {
+        if (estado.procesando || estado.cargando) return
+        viewModelScope.launch {
+            val r = repositorio.porRevisar()
+            if (r is Resultado.Ok) {
+                val ids = r.dato.map { it.id }.toSet()
+                estado = estado.copy(
+                    error = null,
+                    entregas = r.dato.sortedBy { Fechas.instante(it.entregadaEn)?.toEpochMilliseconds() ?: 0L },
+                    abierta = estado.abierta?.takeIf { it in ids },
+                )
+            }
+        }
+    }
+
     fun alternar(id: Int) {
         val abriendo = estado.abierta != id
         estado = estado.copy(

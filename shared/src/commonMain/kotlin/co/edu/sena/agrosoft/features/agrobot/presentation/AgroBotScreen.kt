@@ -72,7 +72,14 @@ private fun sugerenciasDe(rol: Rol): List<String> = when (rol) {
 }
 
 @Composable
-fun AgroBotScreen(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Modifier = Modifier) {
+fun AgroBotScreen(
+    vm: AgroBotViewModel,
+    nombre: String,
+    rol: Rol,
+    modifier: Modifier = Modifier,
+    mostrarChat: Boolean = vm.estado.abierta,
+    cargarAlEntrar: Boolean = true,
+) {
     val alcance = rememberCoroutineScope()
 
     val recibir: (PlatformFile?) -> Unit = { archivo ->
@@ -95,9 +102,9 @@ fun AgroBotScreen(vm: AgroBotViewModel, nombre: String, rol: Rol, modifier: Modi
     val camara = rememberCameraPickerLauncher { recibir(it) }
     val galeria = rememberFilePickerLauncher(type = FileKitType.Image) { recibir(it) }
 
-    LaunchedEffect(Unit) { vm.cargar() }
+    LaunchedEffect(Unit) { if (cargarAlEntrar) vm.cargar() }
 
-    if (vm.estado.abierta) {
+    if (mostrarChat) {
         Chat(vm, modifier, onCamara = { camara.launch() }, onGaleria = { galeria.launch() })
     } else {
         Entrada(vm, nombre, rol, modifier, onCamara = { camara.launch() }, onGaleria = { galeria.launch() })

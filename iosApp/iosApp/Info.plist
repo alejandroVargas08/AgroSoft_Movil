@@ -6,6 +6,8 @@
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
@@ -13,6 +15,8 @@
 	<string>AgroSoft usa la cámara para tomar fotos de evidencia de tus tareas.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>AgroSoft usa Face ID para que ingreses sin escribir tu contraseña.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>AgroSoft se conecta al servidor de AgroSoft en tu red Wi-Fi.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>AgroSoft necesita acceso a tus fotos para adjuntarlas como evidencia.</string>
 	<key>UILaunchScreen</key>

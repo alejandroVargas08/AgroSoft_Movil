@@ -9,6 +9,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.LocalAuthentication.LABiometryTypeFaceID
 import platform.LocalAuthentication.LABiometryTypeTouchID
 import platform.LocalAuthentication.LAContext
+import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthentication
 import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthenticationWithBiometrics
 import kotlin.coroutines.resume
 
@@ -28,7 +29,8 @@ actual suspend fun autenticarBiometria(motivo: String): Boolean =
     suspendCancellableCoroutine { continuacion ->
         val contexto = LAContext()
         contexto.localizedCancelTitle = "Cancelar"
-        contexto.evaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, motivo) { exito, _ ->
+        contexto.localizedFallbackTitle = "Usar código"
+        contexto.evaluatePolicy(LAPolicyDeviceOwnerAuthentication, motivo) { exito, _ ->
             if (continuacion.isActive) continuacion.resume(exito)
         }
     }
