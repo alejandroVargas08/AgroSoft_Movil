@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -372,7 +373,7 @@ private fun Campo(
         shape = RoundedCornerShape(12.dp),
         textStyle = TextStyle(fontSize = 14.sp, color = AgroColors.Text),
         placeholder = { Text(marcador, fontSize = 14.sp, color = AgroColors.Placeholder) },
-        keyboardOptions = KeyboardOptions(keyboardType = teclado),
+        keyboardOptions = KeyboardOptions(keyboardType = teclado, capitalization = if (teclado == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = AgroColors.Primary,
             unfocusedBorderColor = AgroColors.Border,

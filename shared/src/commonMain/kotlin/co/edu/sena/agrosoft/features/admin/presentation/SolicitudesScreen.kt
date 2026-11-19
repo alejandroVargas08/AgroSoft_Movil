@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import co.edu.sena.agrosoft.core.theme.AgroColors
@@ -68,6 +70,7 @@ fun SolicitudesScreen(vm: AdminViewModel) {
                     OutlinedTextField(
                         value = e.motivo,
                         onValueChange = vm::cambiarMotivo,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         label = { Text("Motivo", fontSize = 12.sp) },
                         minLines = 3,
                         shape = RoundedCornerShape(12.dp),

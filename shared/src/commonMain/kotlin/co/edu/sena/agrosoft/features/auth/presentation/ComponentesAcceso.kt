@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -118,7 +119,10 @@ internal fun CampoAcceso(
                     minLines = lineas,
                     textStyle = TextStyle(fontSize = tamano, color = AgroColors.Text, letterSpacing = espaciado),
                     cursorBrush = SolidColor(AgroColors.Primary),
-                    keyboardOptions = KeyboardOptions(keyboardType = if (contrasena) KeyboardType.Password else teclado),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (contrasena) KeyboardType.Password else teclado,
+                        capitalization = if (!contrasena && teclado == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
+                    ),
                     visualTransformation = if (contrasena && !visible) PasswordVisualTransformation() else VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )

@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -254,7 +255,7 @@ private fun CampoPerfil(
         onValueChange = onCambio,
         label = { Text(etiqueta, fontSize = 12.sp) },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = teclado),
+        keyboardOptions = KeyboardOptions(keyboardType = teclado, capitalization = if (teclado == KeyboardType.Text) KeyboardCapitalization.Sentences else KeyboardCapitalization.None),
         shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = AgroColors.Primary,
